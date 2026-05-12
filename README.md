@@ -34,19 +34,26 @@ We looked at the market and saw tools that required us to send our metadata and 
 
 ## How to Install
 
-This repository contains the full, free, and open-source codebase. Deployment takes less than five minutes using Snowflake's Git Integration.
+This repository contains the Pro Edition source code. Deployment takes less than five minutes using Snowflake's Git Integration.
 
 ### Prerequisites
 
 1. `ACCOUNTADMIN` access in your Snowflake environment.
+2. A GitHub Personal Access Token with `Read` access to this private repository.
 
 ### Setup Guide
 
 1. Log into your **Snowsight** web interface.
 2. Open a new **SQL Worksheet**.
-3. Open `setup/setup_git_deploy.sql` from this repository.
-4. Paste the entire script into your worksheet and click **Run All**.
-5. Navigate to **Projects > Streamlit** and launch the **SNOWFLAKE_OPS_INTELLIGENCE** app.
+3. Open `setup/setup_git_deploy.sql` from this repository locally.
+4. Locate the `CREATE OR REPLACE SECRET` block and replace `<YOUR_GITHUB_PERSONAL_ACCESS_TOKEN>` with your actual token:
+   ```sql
+   CREATE OR REPLACE SECRET APP_DATA.SNOWOPS_GIT_SECRET
+     TYPE = PASSWORD
+     PASSWORD = 'your_actual_token_here';
+   ```
+5. Paste the entire script into your worksheet and click **Run All**.
+6. Navigate to **Projects > Streamlit** and launch the **SNOWOPS_INTEL_PRO** app.
 
 ## Support
 
