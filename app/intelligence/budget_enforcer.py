@@ -28,7 +28,7 @@ class BudgetEnforcer:
         CREATE OR REPLACE PROCEDURE APP_CONTEXT.RUN_BUDGET_CHECK()
         RETURNS STRING
         LANGUAGE PYTHON
-        RUNTIME_VERSION = '3.8'
+        RUNTIME_VERSION = '3.10'
         PACKAGES = ('snowflake-snowpark-python', 'pandas')
         HANDLER = 'run_check'
         AS
