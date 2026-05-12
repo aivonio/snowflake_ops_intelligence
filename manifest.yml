@@ -8,7 +8,7 @@ version:
 artifacts:
   readme: README.md
   setup_script: setup.sql
-  default_streamlit: streamlit_app.py
+  default_streamlit: app/streamlit_app.py
 
 configuration:
   log_level: INFO
@@ -29,7 +29,7 @@ references:
 
 streamlit:
   name: streamlit_app
-  main_file: streamlit_app.py
+  main_file: app/streamlit_app.py
   query_warehouse: reference('app_warehouse')
   environment_file: environment.yml
-  pages_dir: pages
+  pages_dir: app/pages
