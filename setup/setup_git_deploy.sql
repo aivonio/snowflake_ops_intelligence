@@ -14,6 +14,15 @@
 USE ROLE ACCOUNTADMIN;
 
 -- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║ 0. EVENT TABLE & LOGGING SETUP                                     ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+
+CREATE DATABASE IF NOT EXISTS SNOWFLAKE_LOGS;
+CREATE EVENT TABLE IF NOT EXISTS SNOWFLAKE_LOGS.PUBLIC.EVENTS;
+ALTER ACCOUNT SET EVENT_TABLE = SNOWFLAKE_LOGS.PUBLIC.EVENTS;
+
+
+-- ╔══════════════════════════════════════════════════════════════════════╗
 -- ║ 1. CREATE INFRASTRUCTURE                                           ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -296,23 +305,208 @@ INSERT INTO APP_CONTEXT.BUDGET_ALERTS (ALERT_NAME, ALERT_TYPE, TARGET_NAME, THRE
 SELECT 'Account Daily Limit', 'ACCOUNT', 'ACCOUNT', 10.0, 80.0, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM APP_CONTEXT.BUDGET_ALERTS WHERE ALERT_NAME = 'Account Daily Limit');
 
+-- Telemetry (Anonymous usage tracking)
+INSERT INTO APP_CONTEXT.PLATFORM_SETTINGS (SETTING_KEY, SETTING_VALUE, DESCRIPTION)
+SELECT 'TELEMETRY_ENABLED', 'TRUE', 'Enable anonymous usage telemetry (TRUE/FALSE)'
+WHERE NOT EXISTS (SELECT 1 FROM APP_CONTEXT.PLATFORM_SETTINGS WHERE SETTING_KEY = 'TELEMETRY_ENABLED');
+
+INSERT INTO APP_CONTEXT.PLATFORM_SETTINGS (SETTING_KEY, SETTING_VALUE, DESCRIPTION)
+SELECT 'POSTHOG_API_KEY', 'phc_W89NRd31nyEXwMDNHgvW1kxycaKPLq2SqKjm9RuKpzH', 'PostHog project API key for anonymous telemetry'
+WHERE NOT EXISTS (SELECT 1 FROM APP_CONTEXT.PLATFORM_SETTINGS WHERE SETTING_KEY = 'POSTHOG_API_KEY');
+
+INSERT INTO APP_CONTEXT.PLATFORM_SETTINGS (SETTING_KEY, SETTING_VALUE, DESCRIPTION)
+SELECT 'POSTHOG_HOST', 'https://us.i.posthog.com', 'PostHog API endpoint'
+WHERE NOT EXISTS (SELECT 1 FROM APP_CONTEXT.PLATFORM_SETTINGS WHERE SETTING_KEY = 'POSTHOG_HOST');
+
+
 
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║ 4. GRANTS                                                          ║
+-- ║ 4. ROLES & GRANTS (Native App Security Model)                      ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
--- Grant ACCOUNT_USAGE access (required for cost/query/security views)
-GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE PUBLIC;
+-- Create standard RBAC Roles
+CREATE ROLE IF NOT EXISTS SNOWFLAKE_OPS_ADMIN;
+CREATE ROLE IF NOT EXISTS SNOWFLAKE_OPS_USER;
 
--- Grant app database access
-GRANT USAGE ON DATABASE SNOWFLAKE_OPS_INTELLIGENCE TO ROLE PUBLIC;
-GRANT USAGE ON ALL SCHEMAS IN DATABASE SNOWFLAKE_OPS_INTELLIGENCE TO ROLE PUBLIC;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA APP_CONTEXT TO ROLE PUBLIC;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA APP_ANALYTICS TO ROLE PUBLIC;
-GRANT SELECT ON ALL TABLES IN SCHEMA APP_DATA TO ROLE PUBLIC;
+-- Core Snowflake Privileges
+GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE SNOWFLAKE_OPS_ADMIN;
+GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE SNOWFLAKE_OPS_USER;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON FUTURE TABLES IN SCHEMA APP_CONTEXT TO ROLE PUBLIC;
-GRANT SELECT, INSERT, UPDATE, DELETE ON FUTURE TABLES IN SCHEMA APP_ANALYTICS TO ROLE PUBLIC;
+GRANT DATABASE ROLE SNOWFLAKE.GOVERNANCE_VIEWER TO ROLE SNOWFLAKE_OPS_ADMIN;
+GRANT DATABASE ROLE SNOWFLAKE.USAGE_VIEWER TO ROLE SNOWFLAKE_OPS_ADMIN;
+-- Grant Cortex AI Access (Optional depending on region)
+GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE SNOWFLAKE_OPS_ADMIN;
+
+-- App Database Privileges
+GRANT USAGE ON DATABASE SNOWFLAKE_OPS_INTELLIGENCE TO ROLE SNOWFLAKE_OPS_ADMIN;
+GRANT USAGE ON DATABASE SNOWFLAKE_OPS_INTELLIGENCE TO ROLE SNOWFLAKE_OPS_USER;
+
+GRANT USAGE ON ALL SCHEMAS IN DATABASE SNOWFLAKE_OPS_INTELLIGENCE TO ROLE SNOWFLAKE_OPS_ADMIN;
+GRANT USAGE ON ALL SCHEMAS IN DATABASE SNOWFLAKE_OPS_INTELLIGENCE TO ROLE SNOWFLAKE_OPS_USER;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA APP_CONTEXT TO ROLE SNOWFLAKE_OPS_ADMIN;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA APP_ANALYTICS TO ROLE SNOWFLAKE_OPS_ADMIN;
+GRANT SELECT ON ALL TABLES IN SCHEMA APP_DATA TO ROLE SNOWFLAKE_OPS_ADMIN;
+
+-- Read-only for standard users
+GRANT SELECT ON ALL TABLES IN SCHEMA APP_CONTEXT TO ROLE SNOWFLAKE_OPS_USER;
+GRANT SELECT ON ALL TABLES IN SCHEMA APP_ANALYTICS TO ROLE SNOWFLAKE_OPS_USER;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON FUTURE TABLES IN SCHEMA APP_CONTEXT TO ROLE SNOWFLAKE_OPS_ADMIN;
+GRANT SELECT, INSERT, UPDATE, DELETE ON FUTURE TABLES IN SCHEMA APP_ANALYTICS TO ROLE SNOWFLAKE_OPS_ADMIN;
+
+-- Warehouse Access
+GRANT USAGE ON WAREHOUSE SNOWOPS_WH TO ROLE SNOWFLAKE_OPS_ADMIN;
+GRANT USAGE ON WAREHOUSE SNOWOPS_WH TO ROLE SNOWFLAKE_OPS_USER;
+
+
+
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║ 4.5. EXTERNAL ACCESS & STORED PROCEDURES                           ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+
+-- Telemetry Network Rule
+CREATE OR REPLACE NETWORK RULE APP_CONTEXT.POSTHOG_NETWORK_RULE
+  TYPE = HOST_PORT  MODE = EGRESS
+  VALUE_LIST = ('us.i.posthog.com:443', 'us-assets.i.posthog.com:443');
+
+CREATE OR REPLACE EXTERNAL ACCESS INTEGRATION POSTHOG_ACCESS
+  ALLOWED_NETWORK_RULES = (APP_CONTEXT.POSTHOG_NETWORK_RULE)
+  ENABLED = TRUE;
+
+GRANT USAGE ON INTEGRATION POSTHOG_ACCESS TO ROLE SNOWFLAKE_OPS_ADMIN;
+GRANT USAGE ON INTEGRATION POSTHOG_ACCESS TO ROLE SNOWFLAKE_OPS_USER;
+
+-- Autopilot Optimization Logic
+CREATE OR REPLACE PROCEDURE APP_CONTEXT.AUTOPILOT_OPTIMIZE()
+RETURNS STRING
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.8'
+PACKAGES = ('snowflake-snowpark-python')
+HANDLER = 'run_optimization'
+AS
+$$
+import snowflake.snowpark as snowpark
+from snowflake.snowpark.functions import col, avg, count
+
+def run_optimization(session):
+    actions = []
+    
+    mode_row = session.sql("SELECT CONFIG_VALUE FROM APP_CONTEXT.APP_CONFIG WHERE CONFIG_KEY = 'AUTOPILOT_MODE'").collect()
+    mode = mode_row[0][0].replace('"', '') if mode_row else 'CONSERVATIVE'
+    
+    wh_df = session.sql("SHOW WAREHOUSES").collect()
+    
+    for row in wh_df:
+        wh_name = row['name']
+        auto_suspend = int(row['auto_suspend']) if row['auto_suspend'] else 0
+        
+        if auto_suspend == 0: continue 
+
+        load_query = f"SELECT AVG(AVG_RUNNING) as avg_run, AVG(AVG_QUEUED_LOAD) as avg_queue FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_LOAD_HISTORY WHERE WAREHOUSE_NAME = '{wh_name}' AND START_TIME >= DATEADD(day, -7, CURRENT_TIMESTAMP())"
+        load_res = session.sql(load_query).collect()[0]
+        avg_run = load_res['AVG_RUN'] or 0
+        
+        new_suspend = None
+        reason = ""
+        
+        if avg_run < 0.1:
+            if mode == 'AGGRESSIVE' and auto_suspend > 60:
+                new_suspend = 60
+                reason = "Aggressive idle trim (Utilization < 10%)"
+            elif mode == 'CONSERVATIVE' and auto_suspend > 300:
+                new_suspend = 300
+                reason = "Conservative idle trim (Utilization < 10%)"
+        
+        if new_suspend:
+            try:
+                session.sql(f"ALTER WAREHOUSE {wh_name} SET AUTO_SUSPEND = {new_suspend}").collect()
+                log_msg = f"Reduced auto-suspend from {auto_suspend} to {new_suspend}"
+                session.sql(f"INSERT INTO APP_ANALYTICS.AUTOPILOT_LOG (ACTION, REASON, WAREHOUSE_NAME, DETAILS) VALUES ('OPTIMIZE', '{reason}', '{wh_name}', PARSE_JSON('{{\\"old\\": {auto_suspend}, \\"new\\": {new_suspend}}}'))").collect()
+                actions.append(f"{wh_name}: {log_msg}")
+            except Exception as e:
+                actions.append(f"Failed {wh_name}: {str(e)}")
+                
+    return "Executed: " + ", ".join(actions) if actions else "No optimizations needed."
+$$;
+
+-- Budget Sentinel Logic
+CREATE OR REPLACE PROCEDURE APP_CONTEXT.RUN_BUDGET_CHECK()
+RETURNS STRING
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.8'
+PACKAGES = ('snowflake-snowpark-python', 'pandas')
+HANDLER = 'run_check'
+AS
+$$
+import snowflake.snowpark as snowpark
+from snowflake.snowpark.functions import col, sum as sum_, current_timestamp
+import pandas as pd
+import json
+
+def run_check(session):
+    alerts_df = session.table("APP_CONTEXT.BUDGET_ALERTS").filter(col("IS_ACTIVE") == True).to_pandas()
+    
+    actions_taken = []
+    
+    for _, row in alerts_df.iterrows():
+        try:
+            alert_id = row['ALERT_ID']
+            name = row['ALERT_NAME']
+            target = row['TARGET_NAME']
+            threshold = row['THRESHOLD_VALUE']
+            op = row['CONDITION_OP']
+            metric_type = row['ALERT_TYPE']
+            
+            current_value = 0.0
+            
+            if metric_type == 'COST':
+                if target.upper() == 'ACCOUNT':
+                    q = "SELECT SUM(CREDITS_USED) FROM SNOWFLAKE.ACCOUNT_USAGE.METERING_HISTORY WHERE START_TIME >= DATEADD(hour, -24, CURRENT_TIMESTAMP())"
+                else:
+                    q = f"SELECT SUM(CREDITS_USED) FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY WHERE WAREHOUSE_NAME = '{target}' AND START_TIME >= DATEADD(hour, -24, CURRENT_TIMESTAMP())"
+                
+                res = session.sql(q).collect()
+                current_value = float(res[0][0]) if res[0][0] is not None else 0.0
+            
+            violation = False
+            if op == '>' and current_value > threshold: violation = True
+            elif op == '>=' and current_value >= threshold: violation = True
+            
+            if violation:
+                msg = f"Alert '{name}' triggered! {target} value {current_value:.2f} {op} {threshold}"
+                
+                session.sql(f"INSERT INTO APP_CONTEXT.NOTIFICATIONS_LOG (LEVEL, MESSAGE, CHANNEL) VALUES ('WARNING', '{msg}', '{row['NOTIFICATION_CHANNEL']}')").collect()
+                
+                if 'HARD LIMIT' in name.upper() and target.upper() != 'ACCOUNT':
+                     try:
+                         session.sql(f"ALTER WAREHOUSE {target} SUSPEND").collect()
+                         log_msg = f"Auto-suspended warehouse {target} due to limit violation."
+                         session.sql(f"INSERT INTO APP_CONTEXT.ENFORCEMENT_LOG (ACTION, TARGET_ID, REASON) VALUES ('SUSPEND', '{target}', '{msg}')").collect()
+                         actions_taken.append(log_msg)
+                     except Exception as e:
+                         pass
+                else:
+                     actions_taken.append(msg)
+
+        except Exception as e:
+            pass
+            
+    return json.dumps(actions_taken)
+$$;
+
+-- Tasks
+CREATE OR REPLACE TASK APP_CONTEXT.AUTOPILOT_TASK
+    WAREHOUSE = SNOWOPS_WH
+    SCHEDULE = 'USING CRON 0 * * * * UTC'
+AS
+    CALL APP_CONTEXT.AUTOPILOT_OPTIMIZE();
+
+CREATE OR REPLACE TASK APP_CONTEXT.BUDGET_SENTINEL_TASK
+    WAREHOUSE = SNOWOPS_WH
+    SCHEDULE = '60 MINUTE'
+AS
+    CALL APP_CONTEXT.RUN_BUDGET_CHECK();
 
 
 -- ╔══════════════════════════════════════════════════════════════════════╗
@@ -347,10 +541,13 @@ CREATE OR REPLACE STREAMLIT APP_ANALYTICS.SNOWFLAKE_OPS_INTELLIGENCE
   ROOT_LOCATION = '@APP_DATA.SNOWOPS_REPO/branches/main/app'
   MAIN_FILE = 'streamlit_app.py'
   QUERY_WAREHOUSE = SNOWOPS_WH
+  EXTERNAL_ACCESS_INTEGRATIONS = (POSTHOG_ACCESS)
   TITLE = 'Snowflake Ops Intelligence'
   COMMENT = 'Deployed via Git integration — github.com/devbysatyam/snowflake_ops_intelligence';
 
 -- Grant access to the Streamlit app
+GRANT USAGE ON STREAMLIT APP_ANALYTICS.SNOWFLAKE_OPS_INTELLIGENCE TO ROLE SNOWFLAKE_OPS_ADMIN;
+GRANT USAGE ON STREAMLIT APP_ANALYTICS.SNOWFLAKE_OPS_INTELLIGENCE TO ROLE SNOWFLAKE_OPS_USER;
 GRANT USAGE ON STREAMLIT APP_ANALYTICS.SNOWFLAKE_OPS_INTELLIGENCE TO ROLE PUBLIC;
 
 

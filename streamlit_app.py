@@ -17,6 +17,9 @@ try:
     current_dir = os.path.dirname(os.path.abspath(__file__))
     if current_dir not in sys.path:
         sys.path.append(current_dir)
+    app_dir = os.path.join(current_dir, 'app')
+    if os.path.exists(app_dir) and app_dir not in sys.path:
+        sys.path.append(app_dir)
 except (NameError, TypeError):
     pass
 
