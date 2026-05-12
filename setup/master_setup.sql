@@ -1,0 +1,508 @@
+-- ==============================================================================
+-- SNOWFLAKE OPS & INTELLIGENCE — COMPLETE SETUP SCRIPT
+-- ==============================================================================
+-- Run this script as ACCOUNTADMIN or a role with sufficient privileges 
+-- (CREATE DATABASE, CREATE WAREHOUSE, EXECUTE TASK, CREATE ALERT).
+--
+-- This script creates ALL databases, schemas, tables, stored procedures,
+-- and tasks required by the Snowflake Ops & Intelligence platform.
+-- ==============================================================================
+
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║ 1. DATABASE & SCHEMA SETUP                                         ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+
+CREATE DATABASE IF NOT EXISTS SNOWFLAKE_OPS_INTELLIGENCE;
+USE DATABASE SNOWFLAKE_OPS_INTELLIGENCE;
+
+CREATE SCHEMA IF NOT EXISTS APP_DATA;
+CREATE SCHEMA IF NOT EXISTS APP_CONTEXT;
+CREATE SCHEMA IF NOT EXISTS APP_ANALYTICS;
+
+
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║ 2. APP_CONTEXT TABLES — User-defined config, metadata, alerts      ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+
+-- A. Application Configuration (global settings store)
+CREATE TABLE IF NOT EXISTS APP_CONTEXT.APP_CONFIG (
+    CONFIG_KEY VARCHAR(100) PRIMARY KEY,
+    CONFIG_VALUE VARIANT,
+    CATEGORY VARCHAR(50),
+    DESCRIPTION VARCHAR(255),
+    UPDATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- B. Platform Settings (cost per credit, budget, thresholds)
+CREATE TABLE IF NOT EXISTS APP_CONTEXT.PLATFORM_SETTINGS (
+    SETTING_KEY VARCHAR(100) PRIMARY KEY,
+    SETTING_VALUE VARCHAR(1000),
+    DESCRIPTION VARCHAR(500),
+    UPDATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- C. Warehouse Context (purpose, ownership, cost profile)
+CREATE TABLE IF NOT EXISTS APP_CONTEXT.WAREHOUSE_CONTEXT (
+    WAREHOUSE_ID NUMBER AUTOINCREMENT PRIMARY KEY,
+    WAREHOUSE_NAME VARCHAR(255) NOT NULL UNIQUE,
+    PURPOSE VARCHAR(50) DEFAULT 'GENERAL',       -- ETL, ANALYTICS, ADHOC, REPORTING, GENERAL
+    SIZE VARCHAR(20),
+    COST_PROFILE VARCHAR(20) DEFAULT 'BALANCED',  -- BUDGET, BALANCED, PERFORMANCE
+    CONCURRENCY_TOLERANCE VARCHAR(20) DEFAULT 'MEDIUM',
+    OPTIMAL_HOURS_JSON VARCHAR(500),
+    AUTO_SUSPEND_SECONDS NUMBER,
+    OWNER_TEAM VARCHAR(255),
+    NOTES VARCHAR(2000),
+    CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    UPDATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- D. Table Context (freshness requirements, criticality)
+CREATE TABLE IF NOT EXISTS APP_CONTEXT.TABLE_CONTEXT (
+    TABLE_ID NUMBER AUTOINCREMENT PRIMARY KEY,
+    DATABASE_NAME VARCHAR(255) NOT NULL,
+    SCHEMA_NAME VARCHAR(255) NOT NULL,
+    TABLE_NAME VARCHAR(255) NOT NULL,
+    SIZE_BYTES NUMBER,
+    ROW_COUNT NUMBER,
+    LAST_MODIFIED TIMESTAMP_NTZ,
+    CLUSTER_KEYS VARCHAR(1000),
+    PARTITION_COUNT NUMBER,
+    ACCESS_FREQUENCY VARCHAR(20) DEFAULT 'UNKNOWN',
+    USER_FRESHNESS_REQUIREMENT VARCHAR(20) DEFAULT 'DAILY',
+    IS_CRITICAL BOOLEAN DEFAULT FALSE,
+    NOTES VARCHAR(2000),
+    CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    UPDATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    UNIQUE (DATABASE_NAME, SCHEMA_NAME, TABLE_NAME)
+);
+
+-- E. Query Context (query optimization preferences)
+CREATE TABLE IF NOT EXISTS APP_CONTEXT.QUERY_CONTEXT (
+    QUERY_ID NUMBER AUTOINCREMENT PRIMARY KEY,
+    QUERY_HASH VARCHAR(64),
+    QUERY_PARAMETERIZED_HASH VARCHAR(64),
+    QUERY_TEXT_SAMPLE VARCHAR(10000),
+    WORKLOAD_TYPE VARCHAR(50) DEFAULT 'ANALYTICAL',
+    COST_TOLERANCE VARCHAR(20) DEFAULT 'BALANCED',
+    LATENCY_TOLERANCE_MS NUMBER,
+    EXPECTED_RUNTIME_MS NUMBER,
+    RECOMMENDED_WAREHOUSE VARCHAR(255),
+    OPTIMIZATION_NOTES VARCHAR(2000),
+    CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    UPDATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    UNIQUE (QUERY_PARAMETERIZED_HASH)
+);
+
+-- F. Team Attribution (cost allocation per team)
+CREATE TABLE IF NOT EXISTS APP_CONTEXT.TEAM_ATTRIBUTION (
+    ATTRIBUTION_ID NUMBER AUTOINCREMENT PRIMARY KEY,
+    USER_NAME VARCHAR(255) NOT NULL UNIQUE,
+    TEAM_NAME VARCHAR(255),
+    DEPARTMENT VARCHAR(255),
+    COST_CENTER VARCHAR(100),
+    BUDGET_LIMIT_CREDITS FLOAT,
+    ALERT_THRESHOLD_PERCENT INTEGER DEFAULT 80,
+    CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    UPDATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- G. Budget Alerts Configuration
+CREATE TABLE IF NOT EXISTS APP_CONTEXT.BUDGET_ALERTS (
+    ALERT_ID NUMBER AUTOINCREMENT PRIMARY KEY,
+    ALERT_NAME VARCHAR(255) NOT NULL,
+    ALERT_TYPE VARCHAR(50),       -- COST, PERFORMANCE, ANOMALY, STORAGE, ACCOUNT, WAREHOUSE, USER, TEAM
+    TARGET_NAME VARCHAR(255),
+    THRESHOLD_CREDITS FLOAT,
+    THRESHOLD_PERCENTAGE FLOAT,
+    THRESHOLD_VALUE FLOAT,
+    CONDITION_OP VARCHAR(50) DEFAULT '>',
+    NOTIFICATION_CHANNEL VARCHAR(50) DEFAULT 'DASHBOARD',
+    NOTIFICATION_CONFIG VARCHAR(2000),
+    IS_ACTIVE BOOLEAN DEFAULT TRUE,
+    LAST_TRIGGERED TIMESTAMP_NTZ,
+    CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- H. Optimization History (track recommendations & outcomes)
+CREATE TABLE IF NOT EXISTS APP_CONTEXT.OPTIMIZATION_HISTORY (
+    OPTIMIZATION_ID NUMBER AUTOINCREMENT PRIMARY KEY,
+    QUERY_HASH VARCHAR(64),
+    RECOMMENDATION_TYPE VARCHAR(100),
+    RECOMMENDATION_TEXT VARCHAR(4000),
+    ESTIMATED_SAVINGS_CREDITS FLOAT,
+    ACTUAL_SAVINGS_CREDITS FLOAT,
+    STATUS VARCHAR(20) DEFAULT 'SUGGESTED',
+    CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    APPLIED_AT TIMESTAMP_NTZ,
+    VERIFIED_AT TIMESTAMP_NTZ
+);
+
+-- I. Notifications Log
+CREATE TABLE IF NOT EXISTS APP_CONTEXT.NOTIFICATIONS_LOG (
+    EVENT_TIME TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    LEVEL VARCHAR(20),
+    MESSAGE VARCHAR(500),
+    CHANNEL VARCHAR(50) DEFAULT 'ALL'
+);
+
+-- J. Enforcement Log (auto-suspend actions)
+CREATE TABLE IF NOT EXISTS APP_CONTEXT.ENFORCEMENT_LOG (
+    EVENT_TIME TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    ACTION VARCHAR(50),
+    TARGET_ID VARCHAR(255),
+    TEAM_NAME VARCHAR(100),
+    REASON VARCHAR(500)
+);
+
+-- K. Agent Logs (AI Agent Runner)
+CREATE TABLE IF NOT EXISTS APP_CONTEXT.AGENT_LOGS (
+    LOG_ID VARCHAR(50) PRIMARY KEY,
+    AGENT_ID VARCHAR(50),
+    RUN_ID VARCHAR(50),
+    TIMESTAMP TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    STEP_NUMBER INT,
+    TYPE VARCHAR(20),       -- THOUGHT, ACTION, OBSERVATION, ERROR, FINAL_ANSWER
+    CONTENT VARCHAR(16777216), 
+    METADATA VARIANT
+);
+
+
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║ 3. APP_ANALYTICS TABLES — Computed metrics, snapshots, logs        ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+
+-- A. Daily Cost Snapshots
+CREATE TABLE IF NOT EXISTS APP_ANALYTICS.DAILY_COST_SNAPSHOT (
+    SNAPSHOT_DATE DATE PRIMARY KEY,
+    TOTAL_CREDITS_USED FLOAT,
+    COMPUTE_CREDITS FLOAT,
+    STORAGE_CREDITS FLOAT,
+    CLOUD_SERVICES_CREDITS FLOAT,
+    DATA_TRANSFER_CREDITS FLOAT,
+    WAREHOUSE_COUNT NUMBER,
+    QUERY_COUNT NUMBER,
+    CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- B. Warehouse Daily Metrics
+CREATE TABLE IF NOT EXISTS APP_ANALYTICS.WAREHOUSE_DAILY_METRICS (
+    METRIC_ID NUMBER AUTOINCREMENT PRIMARY KEY,
+    METRIC_DATE DATE,
+    WAREHOUSE_NAME VARCHAR(255),
+    CREDITS_USED FLOAT,
+    QUERY_COUNT NUMBER,
+    AVG_EXECUTION_TIME_MS FLOAT,
+    AVG_QUEUE_TIME_MS FLOAT,
+    CACHE_HIT_RATIO FLOAT,
+    BYTES_SCANNED NUMBER,
+    CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    UNIQUE (METRIC_DATE, WAREHOUSE_NAME)
+);
+
+-- C. Query Pattern Analytics
+CREATE TABLE IF NOT EXISTS APP_ANALYTICS.QUERY_PATTERN_ANALYTICS (
+    PATTERN_ID NUMBER AUTOINCREMENT PRIMARY KEY,
+    ANALYSIS_DATE DATE,
+    QUERY_PARAMETERIZED_HASH VARCHAR(64),
+    EXECUTION_COUNT NUMBER,
+    AVG_EXECUTION_TIME_MS FLOAT,
+    AVG_BYTES_SCANNED NUMBER,
+    AVG_CREDITS_USED FLOAT,
+    CACHE_HIT_COUNT NUMBER,
+    FAILURE_COUNT NUMBER,
+    LAST_EXECUTED TIMESTAMP_NTZ,
+    CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    UNIQUE (ANALYSIS_DATE, QUERY_PARAMETERIZED_HASH)
+);
+
+-- D. Report Usage Tracking
+CREATE TABLE IF NOT EXISTS APP_ANALYTICS.REPORT_USAGE (
+    USAGE_ID NUMBER AUTOINCREMENT PRIMARY KEY,
+    REPORT_NAME VARCHAR(255),
+    REPORT_TYPE VARCHAR(50),
+    USER_NAME VARCHAR(255),
+    ACCESS_TIMESTAMP TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    SESSION_DURATION_SECONDS NUMBER,
+    ACTIONS_PERFORMED NUMBER
+);
+
+-- E. Query Benchmark Results
+CREATE TABLE IF NOT EXISTS APP_ANALYTICS.QUERY_BENCHMARK (
+    BENCHMARK_ID NUMBER AUTOINCREMENT PRIMARY KEY,
+    QUERY_TEXT VARCHAR(10000),
+    QUERY_HASH VARCHAR(64),
+    RUN_TYPE VARCHAR(20),
+    PREDICTED_COST_CREDITS FLOAT,
+    ACTUAL_COST_CREDITS FLOAT,
+    PREDICTED_TIME_MS NUMBER,
+    ACTUAL_TIME_MS NUMBER,
+    BYTES_SCANNED NUMBER,
+    WAREHOUSE_USED VARCHAR(255),
+    WAREHOUSE_SIZE VARCHAR(20),
+    OPTIMIZATION_APPLIED VARCHAR(1000),
+    COST_SAVINGS_CREDITS FLOAT,
+    TIME_SAVINGS_MS NUMBER,
+    RUN_TIMESTAMP TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- F. Alert Log (Cost Guardian / Alert Builder triggers)
+CREATE TABLE IF NOT EXISTS APP_ANALYTICS.ALERT_LOG (
+    ALERT_LOG_ID NUMBER AUTOINCREMENT PRIMARY KEY,
+    ALERT_NAME VARCHAR(255),
+    TRIGGERED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    DETAILS VARIANT
+);
+
+-- G. Autopilot Log (warehouse auto-optimization actions)
+CREATE TABLE IF NOT EXISTS APP_ANALYTICS.AUTOPILOT_LOG (
+    EVENT_TIME TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    ACTION VARCHAR,
+    REASON VARCHAR,
+    WAREHOUSE_NAME VARCHAR,
+    DETAILS VARIANT
+);
+
+-- H. BI Dashboard Storage
+CREATE TABLE IF NOT EXISTS APP_ANALYTICS.BI_DASHBOARDS (
+    DASHBOARD_ID VARCHAR(50) PRIMARY KEY,
+    DASHBOARD_NAME VARCHAR(255),
+    DASHBOARD_CONFIG VARIANT,
+    CREATED_BY VARCHAR(255),
+    CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    UPDATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- I. Data Quality Scan Results
+CREATE TABLE IF NOT EXISTS APP_ANALYTICS.DQ_SCAN_RESULTS (
+    SCAN_ID NUMBER AUTOINCREMENT PRIMARY KEY,
+    TABLE_SCHEMA VARCHAR(255),
+    TABLE_NAME VARCHAR(255),
+    COLUMN_NAME VARCHAR(255),
+    NULL_COUNT NUMBER,
+    NULL_PCT FLOAT,
+    DISTINCT_COUNT NUMBER,
+    DISTINCT_PCT FLOAT,
+    SCAN_TIMESTAMP TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║ 4. STORED PROCEDURES                                               ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+
+-- A. Autopilot Optimization Logic
+CREATE OR REPLACE PROCEDURE APP_CONTEXT.AUTOPILOT_OPTIMIZE()
+RETURNS STRING
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.8'
+PACKAGES = ('snowflake-snowpark-python')
+HANDLER = 'run_optimization'
+AS
+$$
+import snowflake.snowpark as snowpark
+from snowflake.snowpark.functions import col, avg, count
+
+def run_optimization(session):
+    actions = []
+    
+    mode_row = session.sql("SELECT CONFIG_VALUE FROM APP_CONTEXT.APP_CONFIG WHERE CONFIG_KEY = 'AUTOPILOT_MODE'").collect()
+    mode = mode_row[0][0].replace('"', '') if mode_row else 'CONSERVATIVE'
+    
+    wh_df = session.sql("SHOW WAREHOUSES").collect()
+    
+    for row in wh_df:
+        wh_name = row['name']
+        auto_suspend = int(row['auto_suspend']) if row['auto_suspend'] else 0
+        
+        if auto_suspend == 0: continue 
+
+        load_query = f"SELECT AVG(AVG_RUNNING) as avg_run, AVG(AVG_QUEUED_LOAD) as avg_queue FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_LOAD_HISTORY WHERE WAREHOUSE_NAME = '{wh_name}' AND START_TIME >= DATEADD(day, -7, CURRENT_TIMESTAMP())"
+        load_res = session.sql(load_query).collect()[0]
+        avg_run = load_res['AVG_RUN'] or 0
+        
+        new_suspend = None
+        reason = ""
+        
+        if avg_run < 0.1:
+            if mode == 'AGGRESSIVE' and auto_suspend > 60:
+                new_suspend = 60
+                reason = "Aggressive idle trim (Utilization < 10%)"
+            elif mode == 'CONSERVATIVE' and auto_suspend > 300:
+                new_suspend = 300
+                reason = "Conservative idle trim (Utilization < 10%)"
+        
+        if new_suspend:
+            try:
+                session.sql(f"ALTER WAREHOUSE {wh_name} SET AUTO_SUSPEND = {new_suspend}").collect()
+                log_msg = f"Reduced auto-suspend from {auto_suspend} to {new_suspend}"
+                session.sql(f"INSERT INTO APP_ANALYTICS.AUTOPILOT_LOG (ACTION, REASON, WAREHOUSE_NAME, DETAILS) VALUES ('OPTIMIZE', '{reason}', '{wh_name}', PARSE_JSON('{{\"old\": {auto_suspend}, \"new\": {new_suspend}}}'))").collect()
+                actions.append(f"{wh_name}: {log_msg}")
+            except Exception as e:
+                actions.append(f"Failed {wh_name}: {str(e)}")
+                
+    return "Executed: " + ", ".join(actions) if actions else "No optimizations needed."
+$$;
+
+-- B. Budget Sentinel Logic
+CREATE OR REPLACE PROCEDURE APP_CONTEXT.RUN_BUDGET_CHECK()
+RETURNS STRING
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.8'
+PACKAGES = ('snowflake-snowpark-python', 'pandas')
+HANDLER = 'run_check'
+AS
+$$
+import snowflake.snowpark as snowpark
+from snowflake.snowpark.functions import col, sum as sum_, current_timestamp
+import pandas as pd
+import json
+
+def run_check(session):
+    alerts_df = session.table("APP_CONTEXT.BUDGET_ALERTS").filter(col("IS_ACTIVE") == True).to_pandas()
+    
+    actions_taken = []
+    
+    for _, row in alerts_df.iterrows():
+        try:
+            alert_id = row['ALERT_ID']
+            name = row['ALERT_NAME']
+            target = row['TARGET_NAME']
+            threshold = row['THRESHOLD_VALUE']
+            op = row['CONDITION_OP']
+            metric_type = row['ALERT_TYPE']
+            
+            current_value = 0.0
+            
+            if metric_type == 'COST':
+                if target.upper() == 'ACCOUNT':
+                    q = "SELECT SUM(CREDITS_USED) FROM SNOWFLAKE.ACCOUNT_USAGE.METERING_HISTORY WHERE START_TIME >= DATEADD(hour, -24, CURRENT_TIMESTAMP())"
+                else:
+                    q = f"SELECT SUM(CREDITS_USED) FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY WHERE WAREHOUSE_NAME = '{target}' AND START_TIME >= DATEADD(hour, -24, CURRENT_TIMESTAMP())"
+                
+                res = session.sql(q).collect()
+                current_value = float(res[0][0]) if res[0][0] is not None else 0.0
+                
+            elif metric_type == 'PERFORMANCE':
+                 if target.upper() == 'ACCOUNT':
+                     q = "SELECT COUNT(*) FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY WHERE EXECUTION_STATUS = 'FAIL' AND START_TIME >= DATEADD(hour, -24, CURRENT_TIMESTAMP())"
+                 else:
+                     q = f"SELECT COUNT(*) FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY WHERE WAREHOUSE_NAME = '{target}' AND EXECUTION_STATUS = 'FAIL' AND START_TIME >= DATEADD(hour, -24, CURRENT_TIMESTAMP())"
+                 res = session.sql(q).collect()
+                 current_value = float(res[0][0])
+
+            elif metric_type == 'ANOMALY':
+                q = "SELECT DATE(START_TIME) as D, SUM(CREDITS_USED) as C FROM SNOWFLAKE.ACCOUNT_USAGE.METERING_HISTORY WHERE START_TIME >= DATEADD(day, -30, CURRENT_TIMESTAMP()) GROUP BY 1"
+                hist_df = session.sql(q).to_pandas()
+                
+                if not hist_df.empty:
+                    avg_cost = hist_df['C'].mean()
+                    std_cost = hist_df['C'].std()
+                    
+                    q_today = "SELECT SUM(CREDITS_USED) FROM SNOWFLAKE.ACCOUNT_USAGE.METERING_HISTORY WHERE START_TIME >= DATEADD(hour, -24, CURRENT_TIMESTAMP())"
+                    res_today = session.sql(q_today).collect()
+                    current_cost = float(res_today[0][0]) if res_today[0][0] else 0.0
+                    
+                    if std_cost > 0:
+                        z_score = (current_cost - avg_cost) / std_cost
+                        current_value = z_score 
+                    else:
+                        current_value = 0.0
+            
+            violation = False
+            if op == '>' and current_value > threshold: violation = True
+            elif op == '>=' and current_value >= threshold: violation = True
+            
+            if violation:
+                msg = f"Alert '{name}' triggered! {target} value {current_value:.2f} {op} {threshold}"
+                
+                session.sql(f"INSERT INTO APP_CONTEXT.NOTIFICATIONS_LOG (LEVEL, MESSAGE, CHANNEL) VALUES ('WARNING', '{msg}', '{row['NOTIFICATION_CHANNEL']}')").collect()
+                
+                if 'HARD LIMIT' in name.upper() and target.upper() != 'ACCOUNT':
+                     try:
+                         session.sql(f"ALTER WAREHOUSE {target} SUSPEND").collect()
+                         log_msg = f"Auto-suspended warehouse {target} due to limit violation."
+                         session.sql(f"INSERT INTO APP_CONTEXT.ENFORCEMENT_LOG (ACTION, TARGET_ID, REASON) VALUES ('SUSPEND', '{target}', '{msg}')").collect()
+                         actions_taken.append(log_msg)
+                     except Exception as e:
+                         session.sql(f"INSERT INTO APP_CONTEXT.NOTIFICATIONS_LOG (LEVEL, MESSAGE) VALUES ('ERROR', 'Failed to suspend {target}: {str(e)}')").collect()
+                else:
+                     actions_taken.append(msg)
+
+        except Exception as e:
+            session.sql(f"INSERT INTO APP_CONTEXT.NOTIFICATIONS_LOG (LEVEL, MESSAGE) VALUES ('ERROR', 'Sentinel Error: {str(e)}')").collect()
+            
+    return json.dumps(actions_taken)
+$$;
+
+
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║ 5. TASKS (SCHEDULED JOBS)                                          ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+
+-- A. Autopilot Task (Hourly)
+CREATE OR REPLACE TASK APP_CONTEXT.AUTOPILOT_TASK
+    WAREHOUSE = COMPUTE_WH -- REPLACE WITH YOUR WAREHOUSE
+    SCHEDULE = 'USING CRON 0 * * * * UTC'
+AS
+    CALL APP_CONTEXT.AUTOPILOT_OPTIMIZE();
+
+-- B. Budget Sentinel Task (Hourly)
+CREATE OR REPLACE TASK APP_CONTEXT.BUDGET_SENTINEL_TASK
+    WAREHOUSE = COMPUTE_WH -- REPLACE WITH YOUR WAREHOUSE
+    SCHEDULE = '60 MINUTE'
+AS
+    CALL APP_CONTEXT.RUN_BUDGET_CHECK();
+
+-- NOTE: Tasks are created in SUSPENDED state. Resume them with:
+-- ALTER TASK APP_CONTEXT.AUTOPILOT_TASK RESUME;
+-- ALTER TASK APP_CONTEXT.BUDGET_SENTINEL_TASK RESUME;
+
+
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║ 6. GRANTS                                                          ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+
+GRANT USAGE ON DATABASE SNOWFLAKE_OPS_INTELLIGENCE TO ROLE PUBLIC;
+GRANT USAGE ON ALL SCHEMAS IN DATABASE SNOWFLAKE_OPS_INTELLIGENCE TO ROLE PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA APP_CONTEXT TO ROLE PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA APP_ANALYTICS TO ROLE PUBLIC;
+GRANT SELECT ON ALL TABLES IN SCHEMA APP_DATA TO ROLE PUBLIC;
+
+-- Grant future tables too
+GRANT SELECT, INSERT, UPDATE, DELETE ON FUTURE TABLES IN SCHEMA APP_CONTEXT TO ROLE PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON FUTURE TABLES IN SCHEMA APP_ANALYTICS TO ROLE PUBLIC;
+
+
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║ 7. DEFAULT DATA                                                    ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+
+-- Default cost per credit
+INSERT INTO APP_CONTEXT.PLATFORM_SETTINGS (SETTING_KEY, SETTING_VALUE, DESCRIPTION)
+SELECT 'COST_PER_CREDIT', '3.00', 'Dollar cost per Snowflake credit'
+WHERE NOT EXISTS (SELECT 1 FROM APP_CONTEXT.PLATFORM_SETTINGS WHERE SETTING_KEY = 'COST_PER_CREDIT');
+
+-- Default monthly budget
+INSERT INTO APP_CONTEXT.PLATFORM_SETTINGS (SETTING_KEY, SETTING_VALUE, DESCRIPTION)
+SELECT 'MONTHLY_BUDGET_CREDITS', '1000', 'Monthly credit budget limit'
+WHERE NOT EXISTS (SELECT 1 FROM APP_CONTEXT.PLATFORM_SETTINGS WHERE SETTING_KEY = 'MONTHLY_BUDGET_CREDITS');
+
+-- Default account-level alert
+INSERT INTO APP_CONTEXT.BUDGET_ALERTS (ALERT_NAME, ALERT_TYPE, TARGET_NAME, THRESHOLD_CREDITS, THRESHOLD_PERCENTAGE, IS_ACTIVE)
+SELECT 'Account Daily Limit', 'ACCOUNT', 'ACCOUNT', 10.0, 80.0, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM APP_CONTEXT.BUDGET_ALERTS WHERE ALERT_NAME = 'Account Daily Limit');
+
+
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║ 8. CORTEX AI (OPTIONAL — Requires Premier Edition)                 ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+-- 1. Check your edition: SELECT CURRENT_EDITION();
+-- 2. If Premier+ but restricted region:
+--    ALTER ACCOUNT SET CORTEX_ENABLED_CROSS_REGION = 'ANY_REGION';
+
+
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║ SETUP COMPLETE                                                     ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+SELECT 'Snowflake Ops & Intelligence setup complete!' AS STATUS;

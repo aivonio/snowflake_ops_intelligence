@@ -1,0 +1,45 @@
+    # Python environments
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Snowflake and App Secrets
+# CAUTION: Never commit credentials
+secrets.toml
+app/.streamlit/secrets.toml
+.env
+
+# MacOS
+.DS_Store
+
+# Temporary files
+tmp/
+*.log
+
+# Sub-repositories and Landing Page
+snowops_intel_lite/
+landing/
+extras/
+screenshot/
+
+# AI Agent System Instructions and Docs
+Universal_AI_Agent_Standards.docx
+ACCESSIBILITY_SECURITY.md
+AGENT_RULES.md
+ALGORITHMS_AND_DATA_STRUCTURES.md
+ARCHITECTURE.md
+CODE_QUALITY.md
+COMPLETE_SOFTWARE_LIFECYCLE.md
+DATABASE_AND_SYSTEM_DESIGN.md
+PRODUCTION_ENGINEERING.md
+SOFTWARE_LIFECYCLE.md
+WORKFLOWS_AND_CICD.md

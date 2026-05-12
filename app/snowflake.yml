@@ -1,0 +1,10 @@
+definition_version: 2
+
+streamlit:
+  - name: SNOWFLAKE_OPS_INTELLIGENCE_APP
+    stage: STREAMLIT_STAGE
+    query_warehouse: COMPUTE_WH
+    main_file: streamlit_app.py
+    pages_dir: pages/
+    env_file: ../environment.yml
+    title: "Snowflake Ops Intelligence"

@@ -1,0 +1,35 @@
+manifest_version: 1
+
+version:
+  name: "Snowflake Ops Intelligence"
+  label: "{{version}}"
+  comment: "Context-aware Snowflake operations monitoring and query optimization platform"
+
+artifacts:
+  readme: README.md
+  setup_script: setup.sql
+  default_streamlit: streamlit_app.py
+
+configuration:
+  log_level: INFO
+  trace_level: OFF
+
+privileges:
+  - IMPORTED PRIVILEGES ON SNOWFLAKE SHARED DATABASE
+  - CREATE DATABASE
+  - CREATE WAREHOUSE
+  - EXECUTE TASK
+
+references:
+  - account_usage_database:
+      label: "Snowflake Account Usage"
+      description: "Access to SNOWFLAKE.ACCOUNT_USAGE for monitoring"
+      privileges:
+        - SELECT
+
+streamlit:
+  name: streamlit_app
+  main_file: streamlit_app.py
+  query_warehouse: reference('app_warehouse')
+  environment_file: environment.yml
+  pages_dir: pages
