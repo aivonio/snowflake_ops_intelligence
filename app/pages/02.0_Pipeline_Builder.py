@@ -15,8 +15,8 @@ def init():
     return st.session_state.snowflake_client
 
 def get_engines(client):
-    from app.utils.pipeline_engine import PipelineEngine
-    from app.utils.coco_client import CocoClient
+    from utils.pipeline_engine import PipelineEngine
+    from utils.coco_client import CocoClient
     if 'pipeline_engine' not in st.session_state:
         e = PipelineEngine(client)
         e.ensure_tables()

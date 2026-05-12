@@ -14,7 +14,7 @@ def init():
     return st.session_state.snowflake_client
 
 def get_engines(client):
-    from app.utils.automation_engine import AutomationEngine
+    from utils.automation_engine import AutomationEngine
     if 'automation_engine' not in st.session_state:
         e = AutomationEngine(client); e.ensure_tables(); st.session_state.automation_engine = e
     return st.session_state.automation_engine

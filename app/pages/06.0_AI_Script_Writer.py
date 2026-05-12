@@ -13,7 +13,7 @@ def init():
     return st.session_state.snowflake_client
 
 def get_coco(client):
-    from app.utils.coco_client import CocoClient
+    from utils.coco_client import CocoClient
     try: return CocoClient(client.session)
     except: return None
 

@@ -17,8 +17,8 @@ def init_client():
     return st.session_state.snowflake_client
 
 def get_engines(client):
-    from app.utils.dbt_engine import DbtEngine
-    from app.utils.coco_client import CocoClient
+    from utils.dbt_engine import DbtEngine
+    from utils.coco_client import CocoClient
     if 'dbt_engine' not in st.session_state:
         e = DbtEngine(client)
         e.ensure_tables()

@@ -15,8 +15,8 @@ def init():
     return st.session_state.snowflake_client
 
 def get_engines(client):
-    from app.utils.data_quality_engine import DataQualityEngine
-    from app.utils.coco_client import CocoClient
+    from utils.data_quality_engine import DataQualityEngine
+    from utils.coco_client import CocoClient
     if 'dq_engine' not in st.session_state:
         e = DataQualityEngine(client); e.ensure_tables(); st.session_state.dq_engine = e
     coco = None

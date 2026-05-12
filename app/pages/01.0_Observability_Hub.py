@@ -14,9 +14,9 @@ def init():
     return st.session_state.snowflake_client
 
 def get_engines(client):
-    from app.utils.observability_engine import ObservabilityEngine
-    from app.utils.cost_optimizer import CostOptimizer
-    from app.utils.coco_client import CocoClient
+    from utils.observability_engine import ObservabilityEngine
+    from utils.cost_optimizer import CostOptimizer
+    from utils.coco_client import CocoClient
     if 'obs_engine' not in st.session_state:
         e = ObservabilityEngine(client); e.ensure_tables(); st.session_state.obs_engine = e
     if 'cost_optimizer' not in st.session_state:
