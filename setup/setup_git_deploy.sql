@@ -316,29 +316,22 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON FUTURE TABLES IN SCHEMA APP_ANALYTICS TO
 
 
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║ 5. GIT REPOSITORY INTEGRATION (Private Repo Deploy)                  ║
+-- ║ 5. GIT REPOSITORY INTEGRATION (Public Repo Deploy)                   ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
--- 1. Create a secret for your GitHub Personal Access Token (PAT)
-CREATE OR REPLACE SECRET APP_DATA.SNOWOPS_GIT_SECRET
-  TYPE = PASSWORD
-  PASSWORD = '<YOUR_GITHUB_PERSONAL_ACCESS_TOKEN>'; -- Replace with your real PAT
-
--- 2. Create the API Integration using the secret
+-- Create the API Integration for the public GitHub repository
 CREATE OR REPLACE API INTEGRATION SNOWOPS_GIT_INTEGRATION
   API_PROVIDER = GIT_HTTPS_API
   API_ALLOWED_PREFIXES = ('https://github.com/devbysatyam/')
-  ALLOWED_AUTHENTICATION_SECRETS = (APP_DATA.SNOWOPS_GIT_SECRET)
   ENABLED = TRUE;
 
 -- Stage for the app files
 CREATE STAGE IF NOT EXISTS APP_ANALYTICS.STREAMLIT_STAGE
   DIRECTORY = (ENABLE = TRUE);
 
--- Git Repository object linking to the private repo using the secret
+-- Git Repository object linking to the public repo
 CREATE OR REPLACE GIT REPOSITORY APP_DATA.SNOWOPS_REPO
   API_INTEGRATION = SNOWOPS_GIT_INTEGRATION
-  GIT_CREDENTIALS = APP_DATA.SNOWOPS_GIT_SECRET
   ORIGIN = 'https://github.com/devbysatyam/snowflake_ops_intelligence.git';
 
 -- Fetch latest from GitHub
