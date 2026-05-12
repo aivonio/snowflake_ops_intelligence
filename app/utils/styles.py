@@ -88,7 +88,7 @@ def render_sidebar():
     Replaces the default Streamlit sidebar.
     """
     with st.sidebar:
-        st.logo("https://upload.wikimedia.org/wikipedia/commons/f/ff/Snowflake_Logo.svg", icon_image="https://upload.wikimedia.org/wikipedia/commons/f/ff/Snowflake_Logo.svg")
+        st.image("https://upload.wikimedia.org/wikipedia/commons/f/ff/Snowflake_Logo.svg", width=40)
         st.markdown("### ❄️ SnowOps Intel")
         
         # --- INTELLIGENCE HUB ---

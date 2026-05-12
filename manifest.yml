@@ -31,5 +31,5 @@ streamlit:
   name: streamlit_app
   main_file: app/streamlit_app.py
   query_warehouse: reference('app_warehouse')
-  environment_file: environment.yml
+  environment_file: app/environment.yml
   pages_dir: app/pages
