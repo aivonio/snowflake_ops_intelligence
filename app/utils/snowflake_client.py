@@ -187,7 +187,12 @@ class SnowflakeClient:
         start_time = datetime.now()
         
         try:
-            result = self.session.sql(query).to_pandas()
+            # More robust Pandas conversion to avoid 'columns passed' errors
+            data = self.session.sql(query).collect()
+            if data:
+                result = pd.DataFrame([row.as_dict() for row in data])
+            else:
+                result = pd.DataFrame()
             
             # Normalize columns to uppercase and remove quotes for consistency
             if not result.empty:
