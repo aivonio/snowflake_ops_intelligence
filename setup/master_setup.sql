@@ -336,7 +336,8 @@ def run_optimization(session):
             try:
                 session.sql(f"ALTER WAREHOUSE {wh_name} SET AUTO_SUSPEND = {new_suspend}").collect()
                 log_msg = f"Reduced auto-suspend from {auto_suspend} to {new_suspend}"
-                session.sql(f"INSERT INTO APP_ANALYTICS.AUTOPILOT_LOG (ACTION, REASON, WAREHOUSE_NAME, DETAILS) VALUES ('OPTIMIZE', '{reason}', '{wh_name}', PARSE_JSON('{{\"old\": {auto_suspend}, \"new\": {new_suspend}}}'))").collect()
+                sql_cmd = f"""INSERT INTO APP_ANALYTICS.AUTOPILOT_LOG (ACTION, REASON, WAREHOUSE_NAME, DETAILS) VALUES ('OPTIMIZE', '{reason}', '{wh_name}', PARSE_JSON('{{"old": {auto_suspend}, "new": {new_suspend}}}'))"""
+                session.sql(sql_cmd).collect()
                 actions.append(f"{wh_name}: {log_msg}")
             except Exception as e:
                 actions.append(f"Failed {wh_name}: {str(e)}")
