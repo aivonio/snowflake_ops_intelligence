@@ -32,28 +32,24 @@ We looked at the market and saw tools that required us to send our metadata and 
 * **Security & Governance:** Automated PII scanning and CIS benchmark scoring.
 * **Custom BI Builder:** Drag-and-drop dashboarding to build your own specific operational views.
 
-## How to Install
+## 🚀 Getting Started (Deployment)
 
-This repository contains the Pro Edition source code. Deployment takes less than five minutes using Snowflake's Git Integration.
+This repository contains the full, free, and open-source codebase. It takes less than 5 minutes to deploy entirely within Snowflake's perimeter.
 
 ### Prerequisites
-
 1. `ACCOUNTADMIN` access in your Snowflake environment.
-2. A GitHub Personal Access Token with `Read` access to this private repository.
 
-### Setup Guide
+### SQL-Only Deploy (Zero Clone)
+You can deploy the entire application directly from GitHub without cloning the repository or installing CLI tools.
 
-1. Log into your **Snowsight** web interface.
-2. Open a new **SQL Worksheet**.
-3. Open `setup/setup_git_deploy.sql` from this repository locally.
-4. Locate the `CREATE OR REPLACE SECRET` block and replace `<YOUR_GITHUB_PERSONAL_ACCESS_TOKEN>` with your actual token:
+1. Log into **Snowsight**.
+2. Open a new **SQL Worksheet** and run the following to define your role:
    ```sql
-   CREATE OR REPLACE SECRET APP_DATA.SNOWOPS_GIT_SECRET
-     TYPE = PASSWORD
-     PASSWORD = 'your_actual_token_here';
+   USE ROLE ACCOUNTADMIN;
    ```
-5. Paste the entire script into your worksheet and click **Run All**.
-6. Navigate to **Projects > Streamlit** and launch the **SNOWOPS_INTEL_PRO** app.
+3. Copy the contents of the [`setup/setup_git_deploy.sql`](setup/setup_git_deploy.sql) script.
+4. Paste it into the worksheet and click **▶ Run All**.
+5. Navigate to **Projects → Streamlit** and launch the **SNOWFLAKE_OPS_INTELLIGENCE** app.
 
 ## Support
 
