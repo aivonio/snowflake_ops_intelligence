@@ -6,7 +6,10 @@ import sys
 import os
 
 # Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+except (NameError, TypeError):
+    pass
 
 from utils.snowflake_client import get_snowflake_client
 from utils.styles import apply_global_styles, render_sidebar

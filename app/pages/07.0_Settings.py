@@ -11,7 +11,10 @@ import json
 import sys
 import os
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+except (NameError, TypeError):
+    pass
 
 from utils.snowflake_client import get_snowflake_client
 from utils.formatters import dataframe_to_excel_bytes
@@ -26,7 +29,10 @@ st.set_page_config(
 # --- SECURITY: ADMIN ONLY ---
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+except (NameError, TypeError):
+    pass
 from utils.auth import verify_page_access
 verify_page_access('ADMIN')
 # ----------------------------

@@ -13,9 +13,12 @@ from datetime import datetime, timedelta
 # --- STANDALONE PATH FIX ---
 # In Snowflake Standalone Streamlit (SiS), we need to ensure local modules are 
 # in the path if they are in subdirectories.
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
+try:
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    if current_dir not in sys.path:
+        sys.path.append(current_dir)
+except (NameError, TypeError):
+    pass
 
 # Now we can import our local modules
 try:

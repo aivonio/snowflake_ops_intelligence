@@ -7,7 +7,10 @@ import json
 import numpy as np
 
 # Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+except (NameError, TypeError):
+    pass
 
 from utils import SnowflakeClient
 from utils.styles import apply_global_styles, render_metric_card, COLORS

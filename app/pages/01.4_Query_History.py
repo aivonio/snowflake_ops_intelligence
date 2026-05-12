@@ -12,7 +12,10 @@ import re
 import sys
 import os
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+except (NameError, TypeError):
+    pass
 
 from utils.snowflake_client import get_snowflake_client
 from utils.formatters import (
