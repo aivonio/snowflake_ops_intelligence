@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/devbysatyam/snowops_landing/main/screenshots/dashboard_overview.png" alt="SnowOps Intelligence" width="100%" style="border-radius: 8px;">
+  <img src="https://raw.githubusercontent.com/devbysatyam/snowflake_ops_intelligence/main/assets/banner.png" alt="SnowOps Intelligence Banner" width="100%" style="border-radius: 12px; border: 1px solid #333;">
   
-  <h1>SnowOps Intelligence</h1>
+  <h1>❄️ SnowOps Intelligence</h1>
   
   <p><strong>A native Snowflake cost, operations, and AI intelligence platform.</strong></p>
 
