@@ -154,7 +154,9 @@ def modify_dashboard_with_cortex(client, prompt, current_layout):
     RULES:
     1. Output ONLY the modified JSON structure.
     """
-    cmd = f"SELECT SNOWFLAKE.CORTEX.COMPLETE('mistral-large', '{system_prompt.replace("'", "''")} \\n\\n USER REQUEST: {prompt.replace("'", "''")}')"
+    safe_system = system_prompt.replace("'", "''")
+    safe_user = prompt.replace("'", "''")
+    cmd = f"SELECT SNOWFLAKE.CORTEX.COMPLETE('mistral-large', '{safe_system} \\n\\n USER REQUEST: {safe_user}')"
     try:
         res = client.execute_query(cmd, log=False)
         if not res.empty:
