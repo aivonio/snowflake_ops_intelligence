@@ -365,6 +365,11 @@ GRANT USAGE ON WAREHOUSE SNOWOPS_WH TO ROLE SNOWFLAKE_OPS_USER;
 -- ║ 4.5. EXTERNAL ACCESS & STORED PROCEDURES                           ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
+-- [NOTE] External access is not supported on Snowflake Trial accounts.
+-- If you are on a paid/production account, UNCOMMENT the following block 
+-- to enable PostHog telemetry.
+
+/* -- UNCOMMENT FOR PAID ACCOUNTS --
 -- Telemetry Network Rule
 CREATE OR REPLACE NETWORK RULE APP_CONTEXT.POSTHOG_NETWORK_RULE
   TYPE = HOST_PORT  MODE = EGRESS
@@ -376,6 +381,7 @@ CREATE OR REPLACE EXTERNAL ACCESS INTEGRATION POSTHOG_ACCESS
 
 GRANT USAGE ON INTEGRATION POSTHOG_ACCESS TO ROLE SNOWFLAKE_OPS_ADMIN;
 GRANT USAGE ON INTEGRATION POSTHOG_ACCESS TO ROLE SNOWFLAKE_OPS_USER;
+*/ -- END UNCOMMENT --
 
 -- Autopilot Optimization Logic
 CREATE OR REPLACE PROCEDURE APP_CONTEXT.AUTOPILOT_OPTIMIZE()
@@ -541,7 +547,7 @@ CREATE OR REPLACE STREAMLIT APP_ANALYTICS.SNOWFLAKE_OPS_INTELLIGENCE
   ROOT_LOCATION = '@APP_DATA.SNOWOPS_REPO/branches/main/app'
   MAIN_FILE = 'streamlit_app.py'
   QUERY_WAREHOUSE = SNOWOPS_WH
-  EXTERNAL_ACCESS_INTEGRATIONS = (POSTHOG_ACCESS)
+  -- EXTERNAL_ACCESS_INTEGRATIONS = (POSTHOG_ACCESS) -- UNCOMMENT FOR PAID ACCOUNTS
   TITLE = 'Snowflake Ops Intelligence'
   COMMENT = 'Deployed via Git integration — github.com/devbysatyam/snowflake_ops_intelligence';
 
