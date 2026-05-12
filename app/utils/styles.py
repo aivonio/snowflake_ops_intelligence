@@ -93,32 +93,31 @@ def render_sidebar():
         
         # --- INTELLIGENCE HUB ---
         st.markdown('<div class="nav-header">Intelligence Hub</div>', unsafe_allow_html=True)
-        st.page_link("pages/1_Cost.py", label="Cost Intelligence", icon="💰")
-        st.page_link("pages/2_Queries.py", label="Query Performance", icon="⚡")
-        st.page_link("pages/6_Cluster_Benchmark.py", label="Cluster Benchmarking", icon="⚖️")
-        st.page_link("pages/14_Monitoring.py", label="Alerts & Monitoring", icon="🔔")
+        st.page_link("app/pages/01.1_Cost_Intelligence.py", label="Cost Intelligence", icon="💰")
+        st.page_link("app/pages/01.4_Query_History.py", label="Query Performance", icon="⚡")
+        st.page_link("app/pages/01.5_Cluster_Benchmark.py", label="Cluster Benchmarking", icon="⚖️")
+        st.page_link("app/pages/01.0_Observability_Hub.py", label="Alerts & Monitoring", icon="🔔")
 
         # --- AI POWER SUITE ---
         st.markdown('<div class="nav-header">AI Power Suite</div>', unsafe_allow_html=True)
-        st.page_link("pages/10_AI_Analyst.py", label="Cortex Analyst", icon="🧠")
-        st.page_link("pages/8_AI_Query_Optimizer.py", label="Query Optimizer", icon="🚀")
-        st.page_link("pages/13_Agent_Builder.py", label="Agent Builder", icon="🤖")
-        st.page_link("pages/15_AI_BI_Builder.py", label="AI/BI Dashboarder", icon="📊")
-        st.page_link("pages/12_Workbench.py", label="SQL Workbench", icon="💻")
+        st.page_link("app/pages/05.1_AI_Analyst.py", label="Cortex Analyst", icon="🧠")
+        st.page_link("app/pages/06.1_Query_Optimizer.py", label="Query Optimizer", icon="🚀")
+        st.page_link("app/pages/05.0_Cortex_Agents.py", label="Agent Builder", icon="🤖")
+        st.page_link("app/pages/05.3_AI_BI_Builder.py", label="AI/BI Dashboarder", icon="📊")
+        st.page_link("app/pages/07.2_SQL_Workbench.py", label="SQL Workbench", icon="💻")
 
         # --- OPERATIONS ---
         st.markdown('<div class="nav-header">Operations</div>', unsafe_allow_html=True)
-        st.page_link("pages/4_Waste_Manager.py", label="Waste Manager", icon="🗑️")
-        st.page_link("pages/3_Data_Observability_Hub.py", label="Data Observability", icon="🔭")
-        st.page_link("pages/3_Warehouses.py", label="Warehouse Ops", icon="🏭")
-        st.page_link("pages/4_Pipelines.py", label="Data Pipelines", icon="🔄")
-        st.page_link("pages/7_Resource_Explorer.py", label="Resource Explorer", icon="🔎")
-        st.page_link("pages/11_Data_Quality.py", label="Data Quality", icon="✅")
-        st.page_link("pages/16_Governance.py", label="Security & Gov", icon="🛡️")
+        st.page_link("app/pages/01.2_Waste_Manager.py", label="Waste Manager", icon="🗑️")
+        st.page_link("app/pages/04.0_Data_Quality.py", label="Data Observability", icon="🔭")
+        st.page_link("app/pages/01.3_Warehouse_Metrics.py", label="Warehouse Ops", icon="🏭")
+        st.page_link("app/pages/02.0_Pipeline_Builder.py", label="Data Pipelines", icon="🔄")
+        st.page_link("app/pages/07.1_Resource_Explorer.py", label="Resource Explorer", icon="🔎")
+        st.page_link("app/pages/04.1_Governance.py", label="Security & Gov", icon="🛡️")
 
         # --- ADMIN ---
         st.markdown('<div class="nav-header">Admin</div>', unsafe_allow_html=True)
-        st.page_link("pages/5_Settings.py", label="Settings & Config", icon="⚙️")
+        st.page_link("app/pages/07.0_Settings.py", label="Settings & Config", icon="⚙️")
         st.page_link("streamlit_app.py", label="Home / Setup", icon="🏠")
 
         # Context Info
