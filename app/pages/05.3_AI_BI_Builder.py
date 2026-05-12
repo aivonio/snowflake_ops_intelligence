@@ -25,30 +25,30 @@ def get_db_schema_context(client):
         if 'db_context_cache' not in st.session_state:
             dbs = client.execute_query("SHOW DATABASES")
             if not dbs.empty:
-                st.session_state.db_context_cache = [db for db in dbs['name'].tolist() if db not in ['SNOWFLAKE', 'SNOWFLAKE_SAMPLE_DATA']]
+                # SnowflakeClient normalizes columns to UPPERCASE
+                st.session_state.db_context_cache = [db for db in dbs['NAME'].tolist() if db not in ['SNOWFLAKE', 'SNOWFLAKE_SAMPLE_DATA']]
             else:
                 st.session_state.db_context_cache = []
         return st.session_state.db_context_cache
-    except:
+    except Exception as e:
+        st.sidebar.error(f"Context Error: {e}")
         return []
 
-def get_tables_context(client, database, schema):
     try:
         tables = client.execute_query(f"SHOW TABLES IN SCHEMA {database}.{schema}")
         views = client.execute_query(f"SHOW VIEWS IN SCHEMA {database}.{schema}")
-        t_list = tables['name'].tolist() if not tables.empty else []
-        v_list = views['name'].tolist() if not views.empty else []
+        t_list = tables['NAME'].tolist() if not tables.empty else []
+        v_list = views['NAME'].tolist() if not views.empty else []
         return sorted(t_list + v_list)
     except:
         return []
 
-def get_table_metadata(client, database, schema, tables):
     metadata = {}
     for t in tables:
         try:
             desc = client.execute_query(f"DESC TABLE {database}.{schema}.{t}")
             if not desc.empty:
-                metadata[t] = [f"{r['name']} ({r['type']})" for _, r in desc.iterrows()]
+                metadata[t] = [f"{r['NAME']} ({r['TYPE']})" for _, r in desc.iterrows()]
         except:
             continue
     return metadata
@@ -253,18 +253,22 @@ def main():
             st.markdown("---")
             st.markdown("### 🧠 AI Context")
             dbs = get_db_schema_context(client)
+            selected_tables = []
             if dbs:
                 db = st.selectbox("Database", dbs)
                 if db:
                     schemas_df = client.execute_query(f"SHOW SCHEMAS IN DATABASE {db}")
-                    schemas = [s for s in schemas_df['name'].tolist() if s != 'INFORMATION_SCHEMA'] if not schemas_df.empty else []
+                    schemas = [s for s in schemas_df['NAME'].tolist() if s != 'INFORMATION_SCHEMA'] if not schemas_df.empty else []
                     schema = st.selectbox("Schema", schemas)
                     
                     if db and schema:
                         st.session_state.ctx_database = db
                         st.session_state.ctx_schema = schema
                         tables = get_tables_context(client, db, schema)
-                        selected_tables = st.multiselect("Active Tables (for AI)", tables)
+                        if tables:
+                            selected_tables = st.multiselect("Active Tables (for AI)", tables)
+                        else:
+                            st.warning("No tables found in this schema.")
             
             with st.expander("📚 Semantic Dictionary", expanded=False):
                 st.caption("Define logic for AI (e.g., 'Active = STATUS=\"A\"')")
@@ -307,7 +311,7 @@ def main():
     if not st.session_state.dashboard_layout and not is_read_only:
         st.info("👋 Select Database & Schema in sidebar, then pick tables to start.")
         
-        if st.session_state.ctx_schema and 'selected_tables' in locals() and selected_tables:
+        if st.session_state.ctx_schema and selected_tables:
             prompt = st.text_area("What do you want to analyze?", height=100, 
                                   placeholder="e.g. creating a sales dashboard showing revenue by region, top products pareto, and shipping delay heatmap.\nTip: Ask for complex joins if needed!")
             
