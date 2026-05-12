@@ -813,10 +813,10 @@ def render_cost_overview(client, days):
         return
     
     # 2. Key Metrics Calculation
-    total_credits = trends['TOTAL_CREDITS'].sum()
-    compute_credits = trends['COMPUTE_CREDITS'].sum()
-    cloud_credits = trends['CLOUD_CREDITS'].sum()
-    avg_daily = trends['TOTAL_CREDITS'].mean()
+    total_credits = float(trends['TOTAL_CREDITS'].sum())
+    compute_credits = float(trends['COMPUTE_CREDITS'].sum())
+    cloud_credits = float(trends['CLOUD_CREDITS'].sum())
+    avg_daily = float(trends['TOTAL_CREDITS'].mean())
     
     # Forecast (Monthly extrapolation based on avg daily)
     projected_monthly = avg_daily * 30
@@ -824,7 +824,7 @@ def render_cost_overview(client, days):
     # Storage (Latest)
     latest_storage_tb = 0.0
     if not storage.empty:
-        latest_storage_tb = storage.iloc[0]['TOTAL_TB']
+        latest_storage_tb = float(storage.iloc[0]['TOTAL_TB'])
 
     # Cost Estimates (Assuming $3/credit and $23/TB/month - Standard Enterprise)
     # TODO: Make these configurable in Settings
@@ -1598,8 +1598,8 @@ def render_forecast(client, days):
         return
 
     # 2. Calculate Basics
-    total_credits = trends['TOTAL_CREDITS'].sum()
-    avg_daily_burn = trends['TOTAL_CREDITS'].mean()
+    total_credits = float(trends['TOTAL_CREDITS'].sum())
+    avg_daily_burn = float(trends['TOTAL_CREDITS'].mean())
     COST_PER_CREDIT = 3.00
     
     # Linear Regression for overall trend
@@ -1720,14 +1720,14 @@ def render_forecast(client, days):
     st.markdown("**30-Day Projected Totals:**")
     sc_data = {
         "Scenario": ["🟢 Optimistic", "🟡 Planned", "🔴 Pessimistic"],
-        "Total Credits": [scenarios['Optimistic'].sum(), scenarios['Planned'].sum(), scenarios['Pessimistic'].sum()],
-        "Est. Cost": [f"${scenarios['Optimistic'].sum()*COST_PER_CREDIT:,.2f}", 
-                     f"${scenarios['Planned'].sum()*COST_PER_CREDIT:,.2f}",
-                     f"${scenarios['Pessimistic'].sum()*COST_PER_CREDIT:,.2f}"],
+        "Total Credits": [float(scenarios['Optimistic'].sum()), float(scenarios['Planned'].sum()), float(scenarios['Pessimistic'].sum())],
+        "Est. Cost": [f"${float(scenarios['Optimistic'].sum())*COST_PER_CREDIT:,.2f}", 
+                     f"${float(scenarios['Planned'].sum())*COST_PER_CREDIT:,.2f}",
+                     f"${float(scenarios['Pessimistic'].sum())*COST_PER_CREDIT:,.2f}"],
         "Budget Status": [
-            "✅ Under" if scenarios['Optimistic'].sum() < TOTAL_BUDGET else "⚠️ Over",
-            "✅ Under" if scenarios['Planned'].sum() < TOTAL_BUDGET else "⚠️ Over",
-            "✅ Under" if scenarios['Pessimistic'].sum() < TOTAL_BUDGET else "⚠️ Over"
+            "✅ Under" if float(scenarios['Optimistic'].sum()) < TOTAL_BUDGET else "⚠️ Over",
+            "✅ Under" if float(scenarios['Planned'].sum()) < TOTAL_BUDGET else "⚠️ Over",
+            "✅ Under" if float(scenarios['Pessimistic'].sum()) < TOTAL_BUDGET else "⚠️ Over"
         ]
     }
     st.dataframe(pd.DataFrame(sc_data), use_container_width=True, hide_index=True)
@@ -1759,7 +1759,7 @@ def render_forecast(client, days):
         if 'TOTAL_CREDITS' in wh_sorted.columns:
             wh_sorted_copy = wh_sorted.copy()
             multiplier = 365 / max(days, 1)
-            wh_sorted_copy['YEARLY_PROJECTION'] = wh_sorted_copy['TOTAL_CREDITS'] * multiplier
+            wh_sorted_copy['YEARLY_PROJECTION'] = wh_sorted_copy['TOTAL_CREDITS'].astype(float) * multiplier
             wh_sorted_copy['YEARLY_COST'] = wh_sorted_copy['YEARLY_PROJECTION'] * COST_PER_CREDIT
             
             display_wh_cols = [c for c in ['WAREHOUSE_NAME', 'TOTAL_CREDITS', 'YEARLY_PROJECTION', 'YEARLY_COST'] if c in wh_sorted_copy.columns]
