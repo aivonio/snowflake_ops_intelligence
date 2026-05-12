@@ -761,7 +761,7 @@ def run_dashboard():
         st.info("ℹ️ **Waste Manager**: Identify 'Zombie Warehouses' (idle running) and 'Cold Data' (unused tables) to reduce monthly spend.")
     with opt_c2:
          st.markdown("<div style='padding-top: 15px;'>", unsafe_allow_html=True)
-         st.page_link("pages/4_Waste_Manager.py", label="🚀 Launch Waste Manager", icon="🗑️", use_container_width=True)
+         st.page_link("pages/01.2_Waste_Manager.py", label="🚀 Launch Waste Manager", icon="🗑️", use_container_width=True)
          st.markdown("</div>", unsafe_allow_html=True)
 
     # 4. Status Bar (Fixed Footer)
