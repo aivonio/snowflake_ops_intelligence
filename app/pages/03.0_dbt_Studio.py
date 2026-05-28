@@ -7,8 +7,11 @@ import streamlit as st
 import pandas as pd
 import json, time
 
-# ── Page Config ──
 st.set_page_config(page_title="dbt Studio", page_icon="🔧", layout="wide")
+
+from utils.styles import apply_global_styles, render_sidebar
+apply_global_styles()
+render_sidebar()
 
 def init_client():
     if 'snowflake_client' not in st.session_state:

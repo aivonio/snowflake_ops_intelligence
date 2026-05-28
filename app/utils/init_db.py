@@ -54,13 +54,16 @@ def init_database(client):
                     ALERT_TYPE VARCHAR(50),
                     TARGET_NAME VARCHAR(255),
                     THRESHOLD_VALUE FLOAT,
-                    CONDITION_OP VARCHAR(50),
+                    THRESHOLD_CREDITS FLOAT,
+                    THRESHOLD_PERCENTAGE FLOAT,
+                    CONDITION_OP VARCHAR(50) DEFAULT '>',
                     NOTIFICATION_CHANNEL VARCHAR(50) DEFAULT 'DASHBOARD',
+                    RECIPIENTS VARCHAR(2000),
                     IS_ACTIVE BOOLEAN DEFAULT TRUE,
                     CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
                 )
             """,
-            "columns": ["ALERT_ID", "ALERT_NAME", "ALERT_TYPE", "TARGET_NAME", "THRESHOLD_VALUE", "CONDITION_OP", "NOTIFICATION_CHANNEL", "IS_ACTIVE", "CREATED_AT"]
+            "columns": ["ALERT_ID", "ALERT_NAME", "ALERT_TYPE", "TARGET_NAME", "THRESHOLD_VALUE", "THRESHOLD_CREDITS", "THRESHOLD_PERCENTAGE", "CONDITION_OP", "NOTIFICATION_CHANNEL", "RECIPIENTS", "IS_ACTIVE", "CREATED_AT"]
         },
         "NOTIFICATIONS_LOG": {
             "ddl": """
@@ -135,7 +138,7 @@ def init_database(client):
                             
                             alter_sql = f"ALTER TABLE APP_CONTEXT.{table_name} ADD COLUMN {req_col} VARCHAR(255)" # Default to VARCHAR for safety
                             # Refine types if needed, but generic healing is safer with VARCHAR or specific mapping
-                            if "FLOAT" in spec['ddl'] and req_col in ["BUDGET_LIMIT_CREDITS", "THRESHOLD_VALUE"]:
+                            if "FLOAT" in spec['ddl'] and req_col in ["BUDGET_LIMIT_CREDITS", "THRESHOLD_VALUE", "THRESHOLD_CREDITS", "THRESHOLD_PERCENTAGE"]:
                                 alter_sql = f"ALTER TABLE APP_CONTEXT.{table_name} ADD COLUMN {req_col} FLOAT"
                             elif "BOOLEAN" in spec['ddl'] and req_col in ["IS_ACTIVE"]:
                                 alter_sql = f"ALTER TABLE APP_CONTEXT.{table_name} ADD COLUMN {req_col} BOOLEAN DEFAULT TRUE"

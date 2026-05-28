@@ -4,6 +4,7 @@ Helper functions for formatting data for display
 """
 
 import pandas as pd
+import streamlit as st
 from typing import Union, Optional
 from datetime import datetime, timedelta
 

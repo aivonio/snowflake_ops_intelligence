@@ -122,8 +122,41 @@ class CocoClient:
                     f"DB={self._context.get('database','?')}")
         return ""
 
+    def _check_cache(self, cache_key: str) -> Optional[str]:
+        """Check METADATA_CACHE for a cached response."""
+        try:
+            r = self.session.sql(
+                f"SELECT CACHE_VALUE FROM APP_ANALYTICS.METADATA_CACHE "
+                f"WHERE CACHE_KEY = '{cache_key}' AND EXPIRY_TIME > CURRENT_TIMESTAMP()"
+            ).collect()
+            if r:
+                val = r[0]['CACHE_VALUE']
+                if isinstance(val, str):
+                    return val
+                return str(val)
+        except:
+            pass
+        return None
+
+    def _save_cache(self, cache_key: str, value: str, ttl_minutes: int = 30):
+        """Save a response to METADATA_CACHE with TTL."""
+        try:
+            safe_val = value.replace("'", "''")[:10000]
+            self.session.sql(f"""
+                MERGE INTO APP_ANALYTICS.METADATA_CACHE AS t
+                USING (SELECT '{cache_key}' AS k) AS s ON t.CACHE_KEY = s.k
+                WHEN MATCHED THEN UPDATE SET
+                    CACHE_VALUE = PARSE_JSON('{{"response": "{safe_val}"}}'),
+                    EXPIRY_TIME = DATEADD(minute, {ttl_minutes}, CURRENT_TIMESTAMP())
+                WHEN NOT MATCHED THEN INSERT (CACHE_KEY, CACHE_VALUE, EXPIRY_TIME)
+                VALUES (s.k, PARSE_JSON('{{"response": "{safe_val}"}}'),
+                        DATEADD(minute, {ttl_minutes}, CURRENT_TIMESTAMP()))
+            """).collect()
+        except:
+            pass
+
     def _complete(self, prompt: str, system: str = "", model: str = None) -> Optional[str]:
-        """Core completion with circuit breaker and model rotation."""
+        """Core completion with caching, circuit breaker, and model rotation."""
         if not self._circuit_breaker.allow_request():
             return None
 
@@ -132,6 +165,13 @@ class CocoClient:
             full = f"[SYSTEM]\n{system}\n\n[USER]\n{prompt}{self._get_context()}"
         else:
             full = f"{prompt}{self._get_context()}"
+
+        # Check cache
+        import hashlib
+        cache_key = hashlib.md5(full.encode()).hexdigest()
+        cached = self._check_cache(cache_key)
+        if cached:
+            return cached
 
         # Try primary model, then rotate on failure
         models_to_try = [model or self.best_model]
@@ -152,19 +192,43 @@ class CocoClient:
 
                 if r:
                     self._circuit_breaker.record_success()
-                    # Track usage
+                    response = r[0]["RESPONSE"]
                     self._usage_log.append({
                         "model": try_model,
                         "duration_ms": duration_ms,
                         "prompt_len": len(full),
                         "timestamp": datetime.now().isoformat(),
                     })
-                    return r[0]["RESPONSE"]
+                    self._save_cache(cache_key, response)
+                    return response
             except Exception as e:
                 self._circuit_breaker.record_failure()
                 continue
 
         return None
+
+    def complete_with_context(self, prompt: str, system: str = "",
+                              session_key: str = "coco_history") -> Optional[str]:
+        """Multi-turn completion that maintains conversation history in session state."""
+        messages = st.session_state.get(session_key, [])
+
+        history_text = ""
+        if messages:
+            recent = messages[-6:]
+            history_text = "\n".join(
+                f"[{m['role'].upper()}] {m['content']}" for m in recent
+            )
+            history_text = f"\n[CONVERSATION HISTORY]\n{history_text}\n"
+
+        full_prompt = f"{history_text}{prompt}" if history_text else prompt
+        response = self._complete(full_prompt, system)
+
+        if response:
+            messages.append({"role": "user", "content": prompt[:2000]})
+            messages.append({"role": "assistant", "content": response[:2000]})
+            st.session_state[session_key] = messages[-20:]
+
+        return response
 
     # ── SQL Generation ──
     def generate_sql(self, intent: str, tables: List[str] = None) -> Optional[str]:

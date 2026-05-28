@@ -25,7 +25,6 @@ def get_db_schema_context(client):
         if 'db_context_cache' not in st.session_state:
             dbs = client.execute_query("SHOW DATABASES")
             if not dbs.empty:
-                # SnowflakeClient normalizes columns to UPPERCASE
                 st.session_state.db_context_cache = [db for db in dbs['NAME'].tolist() if db not in ['SNOWFLAKE', 'SNOWFLAKE_SAMPLE_DATA']]
             else:
                 st.session_state.db_context_cache = []
@@ -34,6 +33,9 @@ def get_db_schema_context(client):
         st.sidebar.error(f"Context Error: {e}")
         return []
 
+
+def get_tables_context(client, database, schema):
+    """Get tables and views in a given database.schema."""
     try:
         tables = client.execute_query(f"SHOW TABLES IN SCHEMA {database}.{schema}")
         views = client.execute_query(f"SHOW VIEWS IN SCHEMA {database}.{schema}")
@@ -43,6 +45,9 @@ def get_db_schema_context(client):
     except:
         return []
 
+
+def get_table_metadata(client, database, schema, tables):
+    """Get column metadata for selected tables."""
     metadata = {}
     for t in tables:
         try:

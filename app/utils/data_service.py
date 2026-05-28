@@ -54,7 +54,6 @@ def get_account_metrics(session):
             metrics['top_warehouse'] = credits_df.iloc[0]['TOP_WH_NAME'] or 'N/A'
             
         # Fallback if credits are 0 (Latency or new account)
-        # Fallback if credits are 0 (Latency or new account)
         if metrics['total_credits'] == 0:
             try:
                 fallback_df = session.sql("""
@@ -97,10 +96,11 @@ def get_account_metrics(session):
                              if not top_wh_df.empty:
                                  metrics['top_warehouse'] = top_wh_df.iloc[0]['WAREHOUSE_NAME']
                                  metrics['top_warehouse_credits'] = float(top_wh_df.iloc[0]['TOTAL_CREDS'] or 0)
-                         except:
-                             pass
-                             
-                         metrics['is_realtime_fallback'] = True 
+                         except Exception as inner_e:
+                             import logging
+                             logging.getLogger(__name__).debug(f"Top WH fallback: {inner_e}")
+
+                         metrics['used_fallback'] = True 
             except Exception as e:
                 metrics['error_detail'] += f"Fallback: {e}; "
 
@@ -244,7 +244,87 @@ def get_daily_credits_by_warehouse(session, days=30):
                 ORDER BY 1
              """
              df = session.sql(query_fallback).to_pandas()
-        
+
         return df
     except:
         return pd.DataFrame()
+
+
+def get_top_users(session, limit=5):
+    """Get top users by query count (last 7 days)."""
+    limit = int(limit)
+    try:
+        query = f"""
+        SELECT
+            USER_NAME,
+            COUNT(*) as query_count,
+            SUM(CREDITS_USED_CLOUD_SERVICES) as credits_approx
+        FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
+        WHERE START_TIME >= DATEADD(day, -7, CURRENT_TIMESTAMP())
+        GROUP BY 1
+        ORDER BY 2 DESC
+        LIMIT {limit}
+        """
+        return session.sql(query).to_pandas()
+    except Exception:
+        return pd.DataFrame()
+
+
+def get_storage_trend(session, days=30):
+    """Get storage usage trend in TB."""
+    days = int(days)
+    try:
+        query = f"""
+        SELECT
+            USAGE_DATE,
+            AVERAGE_DATABASE_BYTES / 1e12 as db_tb,
+            AVERAGE_STAGE_BYTES / 1e12 as stage_tb,
+            AVERAGE_FAILSAFE_BYTES / 1e12 as failsafe_tb
+        FROM SNOWFLAKE.ACCOUNT_USAGE.STORAGE_USAGE
+        WHERE USAGE_DATE >= DATEADD(day, -{days}, CURRENT_TIMESTAMP())
+        ORDER BY USAGE_DATE
+        """
+        return session.sql(query).to_pandas()
+    except Exception:
+        return pd.DataFrame()
+
+
+def get_workload_metrics(session, days=7):
+    """Get top workloads grouped by Query Tag or Pattern."""
+    days = int(days)
+    try:
+        query = f"""
+        SELECT
+            COALESCE(NULLIF(QUERY_TAG, ''), LEFT(QUERY_TEXT, 40)) as workload,
+            'Query' as type,
+            COUNT(DISTINCT USER_NAME) as users,
+            COUNT(DISTINCT WAREHOUSE_NAME) as warehouses,
+            AVG(TOTAL_ELAPSED_TIME)/1000 as avg_duration_s,
+            COUNT(*) as run_count
+        FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
+        WHERE START_TIME >= DATEADD(day, -{days}, CURRENT_TIMESTAMP())
+            AND TOTAL_ELAPSED_TIME > 0
+        GROUP BY 1, 2
+        ORDER BY run_count DESC
+        LIMIT 10
+        """
+        return session.sql(query).to_pandas()
+    except Exception:
+        return pd.DataFrame()
+
+
+def get_warehouse_status(client):
+    """Get current warehouse status using the client's normalized execution."""
+    df = client.execute_query("SHOW WAREHOUSES")
+
+    if not df.empty:
+        if 'NAME' in df.columns:
+            df['WAREHOUSE_NAME'] = df['NAME']
+
+        if 'STATUS' in df.columns:
+            df['STATE'] = df['STATUS']
+        elif 'STATE' not in df.columns:
+            df['STATE'] = 'UNKNOWN'
+
+        return df
+    return pd.DataFrame()

@@ -13,10 +13,24 @@ class MetadataCache:
     Handles persistent caching of query results and metadata.
     Uses APP_ANALYTICS.METADATA_CACHE table for storage.
     """
-    
+
     def __init__(self):
         self.client = get_snowflake_client()
         self._schema_path = None
+        self._ensure_table()
+
+    def _ensure_table(self):
+        """Create the cache table if it doesn't exist."""
+        try:
+            self.client.execute_query(f"""
+                CREATE TABLE IF NOT EXISTS {self.schema_path}.METADATA_CACHE (
+                    CACHE_KEY VARCHAR PRIMARY KEY,
+                    CACHE_VALUE VARIANT,
+                    EXPIRY_TIME TIMESTAMP_NTZ
+                )
+            """, log=False)
+        except Exception:
+            pass
 
     @property
     def schema_path(self):

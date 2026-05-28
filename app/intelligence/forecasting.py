@@ -155,12 +155,9 @@ class CostForecaster:
             curr_forecast = max(0, base_forecast)
             if apply_seasonality and forecast_date.weekday() >= 5: # 5=Sat, 6=Sun
                 curr_forecast *= weekend_factor
-            
+
             forecast_days.append(forecast_date)
-            forecast_credits.append(curr_forecast) 
-        
-            forecast_days.append(forecast_date)
-            forecast_credits.append(curr_forecast) 
+            forecast_credits.append(curr_forecast)
         
         forecast_df = pd.DataFrame({
             'USAGE_DATE': forecast_days,

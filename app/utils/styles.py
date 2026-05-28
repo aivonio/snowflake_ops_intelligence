@@ -76,7 +76,7 @@ def render_page_header(title, icon=None, description=None):
         st.caption(description)
     st.divider()
 
-def render_metric_card(label, value, delta=None, help_text=None, sub_label=None):
+def render_metric_card(label, value, sub_label=None, delta=None, help_text=None):
     """Render a styled metric card."""
     st.metric(label=label, value=value, delta=delta, help=help_text)
     if sub_label:
@@ -101,7 +101,9 @@ def render_sidebar():
         # --- AI POWER SUITE ---
         st.markdown('<div class="nav-header">AI Power Suite</div>', unsafe_allow_html=True)
         st.page_link("pages/05.1_AI_Analyst.py", label="Cortex Analyst", icon="🧠")
+        st.page_link("pages/05.2_AI_Intelligence.py", label="AI Intelligence", icon="🔮")
         st.page_link("pages/06.1_Query_Optimizer.py", label="Query Optimizer", icon="🚀")
+        st.page_link("pages/06.0_AI_Script_Writer.py", label="AI Script Writer", icon="✍️")
         st.page_link("pages/05.0_Cortex_Agents.py", label="Agent Builder", icon="🤖")
         st.page_link("pages/05.3_AI_BI_Builder.py", label="AI/BI Dashboarder", icon="📊")
         st.page_link("pages/07.2_SQL_Workbench.py", label="SQL Workbench", icon="💻")
@@ -112,11 +114,15 @@ def render_sidebar():
         st.page_link("pages/04.0_Data_Quality.py", label="Data Observability", icon="🔭")
         st.page_link("pages/01.3_Warehouse_Metrics.py", label="Warehouse Ops", icon="🏭")
         st.page_link("pages/02.0_Pipeline_Builder.py", label="Data Pipelines", icon="🔄")
+        st.page_link("pages/02.1_Pipeline_Monitoring.py", label="Pipeline Monitoring", icon="📡")
+        st.page_link("pages/03.0_dbt_Studio.py", label="dbt Studio", icon="🧱")
         st.page_link("pages/07.1_Resource_Explorer.py", label="Resource Explorer", icon="🔎")
         st.page_link("pages/04.1_Governance.py", label="Security & Gov", icon="🛡️")
+        st.page_link("pages/04.2_Security_Policies.py", label="Security Policies", icon="🔒")
 
         # --- ADMIN ---
         st.markdown('<div class="nav-header">Admin</div>', unsafe_allow_html=True)
+        st.page_link("pages/06.2_Automation_Center.py", label="Automation Center", icon="🔧")
         st.page_link("pages/07.0_Settings.py", label="Settings & Config", icon="⚙️")
         st.page_link("streamlit_app.py", label="Home / Setup", icon="🏠")
 

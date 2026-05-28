@@ -9,6 +9,10 @@ import json
 
 st.set_page_config(page_title="Data Quality | SnowOps", page_icon="🛡️", layout="wide")
 
+from utils.styles import apply_global_styles, render_sidebar
+apply_global_styles()
+render_sidebar()
+
 def init():
     if 'snowflake_client' not in st.session_state:
         st.error("⚠️ Not connected. Return to the main dashboard."); st.stop()
@@ -234,11 +238,16 @@ with tab4:
     days = st.slider("Look back (days)", 1, 30, 7)
     try:
         drift = client.execute_query(f"""
-            SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, LAST_ALTERED
-            FROM SNOWFLAKE.ACCOUNT_USAGE.COLUMNS
-            WHERE DELETED IS NULL AND TABLE_SCHEMA != 'INFORMATION_SCHEMA'
-              AND LAST_ALTERED >= DATEADD('day', -{days}, CURRENT_TIMESTAMP())
-            ORDER BY LAST_ALTERED DESC LIMIT 50""")
+            SELECT c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME, c.DATA_TYPE, c.IS_NULLABLE, t.LAST_ALTERED
+            FROM SNOWFLAKE.ACCOUNT_USAGE.COLUMNS c
+            JOIN SNOWFLAKE.ACCOUNT_USAGE.TABLES t
+              ON c.TABLE_CATALOG = t.TABLE_CATALOG
+              AND c.TABLE_SCHEMA = t.TABLE_SCHEMA
+              AND c.TABLE_NAME = t.TABLE_NAME
+            WHERE c.DELETED IS NULL AND c.TABLE_SCHEMA != 'INFORMATION_SCHEMA'
+              AND t.DELETED IS NULL
+              AND t.LAST_ALTERED >= DATEADD('day', -{days}, CURRENT_TIMESTAMP())
+            ORDER BY t.LAST_ALTERED DESC LIMIT 50""")
         if not drift.empty:
             st.warning(f"⚠️ {len(drift)} schema changes in the last {days} days")
             st.dataframe(drift, use_container_width=True)

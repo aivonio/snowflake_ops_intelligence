@@ -46,14 +46,13 @@ def _get_posthog():
     try:
         import posthog as ph
 
-        # Read API key from Snowflake settings — never hardcoded
         api_key = None
         host = "https://us.i.posthog.com"
 
         try:
-            session = st.session_state.get("snowpark_session")
-            if session:
-                result = session.sql(
+            client = st.session_state.get("snowflake_client")
+            if client and client.session:
+                result = client.session.sql(
                     "SELECT SETTING_KEY, SETTING_VALUE FROM APP_CONTEXT.PLATFORM_SETTINGS "
                     "WHERE SETTING_KEY IN ('POSTHOG_API_KEY', 'POSTHOG_HOST')"
                 ).collect()
@@ -90,10 +89,10 @@ def _get_posthog():
 def _get_user_id():
     """Generate a consistent anonymous user ID from Snowflake session context."""
     try:
-        session = st.session_state.get("snowpark_session")
-        if session:
-            user = session.sql("SELECT CURRENT_USER()").collect()[0][0]
-            account = session.sql("SELECT CURRENT_ACCOUNT()").collect()[0][0]
+        client = st.session_state.get("snowflake_client")
+        if client and client.session:
+            user = client.session.sql("SELECT CURRENT_USER()").collect()[0][0]
+            account = client.session.sql("SELECT CURRENT_ACCOUNT()").collect()[0][0]
             return hashlib.sha256(f"{account}:{user}".encode()).hexdigest()[:16]
     except Exception:
         pass
@@ -108,11 +107,11 @@ def _get_context():
         "timestamp": datetime.datetime.utcnow().isoformat(),
     }
     try:
-        session = st.session_state.get("snowpark_session")
-        if session:
-            ctx["account"] = session.sql("SELECT CURRENT_ACCOUNT()").collect()[0][0]
-            ctx["role"] = session.sql("SELECT CURRENT_ROLE()").collect()[0][0]
-            ctx["warehouse"] = session.sql("SELECT CURRENT_WAREHOUSE()").collect()[0][0]
+        client = st.session_state.get("snowflake_client")
+        if client and client.session:
+            ctx["account"] = client.session.sql("SELECT CURRENT_ACCOUNT()").collect()[0][0]
+            ctx["role"] = client.session.sql("SELECT CURRENT_ROLE()").collect()[0][0]
+            ctx["warehouse"] = client.session.sql("SELECT CURRENT_WAREHOUSE()").collect()[0][0]
     except Exception:
         pass
     return ctx

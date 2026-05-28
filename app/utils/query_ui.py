@@ -151,7 +151,28 @@ def render_interactive_query_inspector(df, title="Queries", key_prefix="insp"):
                 c1, c2 = st.columns(2)
                 with c1:
                     if st.button("✨ Explain Query", key=f"{key_prefix}_expl_{row['QUERY_ID']}"):
-                        st.info("AI Explanation feature placeholder")
+                        try:
+                            from utils.coco_client import get_coco_client
+                            coco = get_coco_client()
+                            if coco and coco.is_available:
+                                with st.spinner("Analyzing query..."):
+                                    explanation = coco.diagnose_query({
+                                        'query_text': row.get('QUERY_TEXT', ''),
+                                        'total_elapsed_time': row.get('TOTAL_ELAPSED_TIME', 0),
+                                        'bytes_scanned': row.get('BYTES_SCANNED', 0),
+                                        'partitions_scanned': row.get('PARTITIONS_SCANNED', 0),
+                                        'partitions_total': row.get('PARTITIONS_TOTAL', 0),
+                                        'warehouse_name': row.get('WAREHOUSE_NAME', ''),
+                                        'warehouse_size': row.get('WAREHOUSE_SIZE', ''),
+                                    })
+                                    if explanation:
+                                        st.markdown(explanation)
+                                    else:
+                                        st.warning("Could not generate explanation.")
+                            else:
+                                st.warning("Cortex AI is not available. Enable it in Settings > Cortex AI.")
+                        except Exception as e:
+                            st.error(f"AI explanation error: {e}")
                 with c2:
                     if st.button("⚡ Optimize Query", type="primary", key=f"{key_prefix}_opt_{row['QUERY_ID']}"):
                          st.warning("Optimization requires page-specific context (available in original tabs).")

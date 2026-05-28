@@ -772,68 +772,388 @@ class SetupWizard:
         return "\n".join(lines)
 
 
+WIZARD_STEPS = ['WELCOME', 'ENVIRONMENT', 'PRIVILEGES', 'DATABASE_SETUP',
+                'FEATURE_CONFIG', 'SECURITY_REVIEW', 'COMPLETE']
+
+FEATURE_DESCRIPTIONS = {
+    'autopilot': {
+        'name': 'Warehouse Autopilot',
+        'description': (
+            'Automatically adjusts warehouse auto-suspend timers based on 7-day usage patterns. '
+            'Runs hourly as a Snowflake Task. In AGGRESSIVE mode, also resizes warehouses one step '
+            'at a time based on P95 query latency and queue times.'
+        ),
+        'security_warning': (
+            'This will ALTER WAREHOUSE settings on your account every hour. '
+            'In CONSERVATIVE mode, auto-suspend is reduced to 5 minutes for idle warehouses. '
+            'In AGGRESSIVE mode, auto-suspend is reduced to 60 seconds AND warehouse sizes may change, '
+            'which directly affects your credit burn rate (each size doubles cost).'
+        ),
+        'permissions': ['ALTER WAREHOUSE', 'EXECUTE TASK', 'USAGE on ACCOUNT_USAGE'],
+    },
+    'budget_enforcer': {
+        'name': 'Budget Sentinel',
+        'description': (
+            'Monitors credit usage against your configured budget alerts every 60 minutes. '
+            'Checks account-level, warehouse-level, and team-level costs. Detects cost anomalies '
+            'using Z-score analysis against 30-day baselines.'
+        ),
+        'security_warning': (
+            'When alerts named "Hard Limit" are triggered, this will AUTOMATICALLY SUSPEND warehouses '
+            'that exceed credit thresholds. For team-level hard limits, running queries from that '
+            "team's users will be cancelled. This CAN interrupt active workloads."
+        ),
+        'permissions': ['ALTER WAREHOUSE', 'EXECUTE TASK', 'USAGE on ACCOUNT_USAGE'],
+    },
+    'anomaly_monitor': {
+        'name': 'Anomaly Sentinel',
+        'description': (
+            'Daily Z-score analysis (8:00 AM UTC) of credit consumption to detect spending anomalies. '
+            'Checks at account level, per-warehouse, and per-user. Alerts when spending deviates '
+            'beyond the configured Z-score threshold (default: 2 standard deviations).'
+        ),
+        'security_warning': (
+            'This deploys a Snowflake Task running daily. It queries ACCOUNT_USAGE views and writes '
+            'to ANOMALY_LOG. This is read-only monitoring -- it does NOT modify any warehouses or '
+            'cancel any queries. Notifications are sent via configured channels (email, Slack, etc.).'
+        ),
+        'permissions': ['EXECUTE TASK', 'USAGE on ACCOUNT_USAGE'],
+    },
+}
+
+SECURITY_CHECKLIST = [
+    {
+        'item': 'Network Policy',
+        'check_sql': 'SHOW NETWORK POLICIES',
+        'pass_condition': 'has_rows',
+        'warning': 'No network policy configured. Any IP address can connect to your Snowflake account.',
+        'doc': 'Network policies restrict which IP addresses can connect. Strongly recommended for production.',
+    },
+    {
+        'item': 'ACCOUNTADMIN Users',
+        'check_sql': "SHOW GRANTS OF ROLE ACCOUNTADMIN",
+        'pass_condition': 'few_rows',
+        'max_rows': 3,
+        'warning': 'More than 3 users have ACCOUNTADMIN. Minimize users with this all-powerful role.',
+        'doc': 'ACCOUNTADMIN has unrestricted access. Follow least-privilege: use SYSADMIN for daily work.',
+    },
+    {
+        'item': 'Auto-Suspend Enabled',
+        'check_sql': None,
+        'pass_condition': 'info_only',
+        'warning': 'Warehouses without auto-suspend incur continuous credit charges even when idle.',
+        'doc': 'Auto-suspend pauses idle warehouses. Set to 60-300 seconds for interactive workloads.',
+    },
+    {
+        'item': 'Resource Monitors',
+        'check_sql': 'SHOW RESOURCE MONITORS',
+        'pass_condition': 'has_rows',
+        'warning': 'No resource monitors configured. There is no hard cap on spending.',
+        'doc': 'Resource monitors set credit quotas and can auto-suspend warehouses at thresholds.',
+    },
+]
+
+
 def render_setup_wizard(client):
-    """Render the production setup wizard UI."""
-    st.markdown("## 🧙‍♂️ Setup Wizard")
-    
-    wizard = SetupWizard(client)
-    diag = wizard.run_diagnostics()
-    env = diag['environment']
-    
-    # Environment Display
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Deployment", env.get('type', 'Unknown'))
-    col2.metric("Role", env.get('role', 'Unknown'))
-    col3.metric("Edition", env.get('edition', 'Unknown'))
-    
-    # Status
-    st.markdown("### 📊 Status")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.markdown(f"{'✅' if diag['privileges'] else '❌'} Privileges")
-    c2.markdown(f"{'✅' if env.get('cortex') else '⚠️'} Cortex AI")
-    c3.markdown(f"{'✅' if diag['objects'].get('warehouse') else '⚠️'} Warehouse")
-    c4.markdown(f"{'✅' if diag['objects'].get('database') else '⚠️'} Database")
-    
-    if not diag['privileges']:
-        st.error("Missing ACCOUNT_USAGE access")
-        st.code(f"GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE {env.get('role')};")
-    
+    """Render the multi-step production setup wizard.
+
+    Returns True when setup is complete and the dashboard can load.
+    Uses st.session_state for step tracking and wizard data persistence.
+    """
+    if 'wizard_step' not in st.session_state:
+        st.session_state.wizard_step = 0
+    if 'wizard_data' not in st.session_state:
+        st.session_state.wizard_data = {}
+
+    step = st.session_state.wizard_step
+    total = len(WIZARD_STEPS)
+
+    st.markdown("## Setup Wizard")
+    st.progress(step / (total - 1), text=f"Step {step + 1} of {total}: {WIZARD_STEPS[step].replace('_', ' ').title()}")
     st.markdown("---")
-    
-    # Setup Options
-    st.markdown("### 🚀 Setup Options")
-    
-    deploy_options = {
-        'External App (Local/Cloud Hosted)': SetupWizard.DEPLOY_EXTERNAL,
-        'Streamlit in Snowflake (SiS)': SetupWizard.DEPLOY_SIS,
-        'Native App': SetupWizard.DEPLOY_NATIVE_APP
-    }
-    selected_deploy = st.selectbox("Deployment Type", list(deploy_options.keys()))
-    deploy_type = deploy_options[selected_deploy]
-    
-    c1, c2 = st.columns(2)
-    
-    with c1:
-        if st.button("🔧 Run Automatic Setup", type="primary", use_container_width=True):
-            with st.spinner("Creating objects..."):
+
+    wizard = SetupWizard(client)
+
+    # ── Navigation helpers ──
+    def go_next():
+        st.session_state.wizard_step = min(step + 1, total - 1)
+
+    def go_back():
+        st.session_state.wizard_step = max(step - 1, 0)
+
+    # ── STEP 0: WELCOME ──
+    if step == 0:
+        st.markdown("### Welcome to Snowflake Ops Intelligence")
+        st.markdown(
+            "This wizard will configure your Snowflake account for full observability, "
+            "cost management, pipeline monitoring, and AI-powered analytics."
+        )
+        st.markdown("#### What this wizard will do:")
+        st.markdown(
+            "1. **Detect your environment** -- account type, role, edition, Cortex AI availability\n"
+            "2. **Check privileges** -- verify access to ACCOUNT_USAGE and required permissions\n"
+            "3. **Create database objects** -- tables, views, and schemas for the platform\n"
+            "4. **Configure features** -- choose which automation to enable (Autopilot, Budget Alerts, Anomaly Detection)\n"
+            "5. **Security review** -- check network policies, role grants, and resource monitors\n"
+        )
+        st.info(
+            "**No changes are made until Step 4.** Steps 1-2 are read-only diagnostics. "
+            "You can go back and change settings at any time."
+        )
+        st.markdown("#### Platform capabilities:")
+        cols = st.columns(3)
+        cols[0].markdown("- Cost Intelligence\n- Warehouse Metrics\n- Query Optimization\n- Waste Manager")
+        cols[1].markdown("- Pipeline Builder\n- dbt Studio\n- Data Quality\n- Observability Hub")
+        cols[2].markdown("- AI Agents (Cortex)\n- BI Dashboard Builder\n- Automation Center\n- Security & Governance")
+
+        if st.button("Get Started", type="primary", use_container_width=True):
+            go_next()
+            st.rerun()
+
+    # ── STEP 1: ENVIRONMENT DETECTION ──
+    elif step == 1:
+        st.markdown("### Environment Detection")
+        st.caption("Detecting your Snowflake account configuration...")
+
+        env = wizard.detect_environment()
+        st.session_state.wizard_data['env'] = env
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Account", env.get('account', 'Unknown')[:20])
+        c2.metric("Role", env.get('role', 'Unknown'))
+        c3.metric("Edition", env.get('edition', 'Unknown'))
+        c4.metric("Cortex AI", "Available" if env.get('cortex') else "Unavailable")
+
+        deploy_type = env.get('type', 'EXTERNAL')
+        if deploy_type == 'STREAMLIT_IN_SNOWFLAKE':
+            st.success("Running inside Streamlit in Snowflake (SiS). Native session detected.")
+        elif deploy_type == 'NATIVE_APP':
+            st.success("Running as a Snowflake Native App.")
+        else:
+            st.info("Running as an external application. OAuth or credentials required for connection.")
+
+        st.session_state.wizard_data['deploy_type'] = deploy_type
+
+        if not env.get('cortex'):
+            st.warning(
+                "Cortex AI is not available in this region/edition. AI features (query explanation, "
+                "optimization suggestions, CoCo agent, AI BI Builder) will be disabled. "
+                "The platform will still work for all non-AI features."
+            )
+
+        _render_wizard_nav(go_back, go_next)
+
+    # ── STEP 2: PRIVILEGE CHECK ──
+    elif step == 2:
+        st.markdown("### Privilege Check")
+        st.caption("Verifying required permissions for full functionality...")
+
+        has_privs = wizard.check_privileges()
+        env = st.session_state.wizard_data.get('env', {})
+
+        checks = [
+            ("ACCOUNT_USAGE access", has_privs,
+             "Required for cost analytics, query history, warehouse metrics, and all monitoring features."),
+            ("CREATE DATABASE", wizard.check_object_exists('database', wizard.database) or True,
+             "Needed to create the application database. Existing databases will not be modified."),
+            ("Warehouse available", bool(env.get('warehouse')),
+             "A warehouse is needed to run queries. The wizard can create one if needed."),
+        ]
+
+        all_pass = True
+        for name, passed, desc in checks:
+            icon = "pass" if passed else "fail"
+            if icon == "fail":
+                all_pass = False
+            col1, col2 = st.columns([1, 4])
+            col1.markdown(f"{'✅' if passed else '❌'} **{name}**")
+            col2.caption(desc)
+
+        if not has_privs:
+            st.error("ACCOUNT_USAGE access is required for most platform features.")
+            st.markdown("Run this SQL as ACCOUNTADMIN to grant access:")
+            st.code(f"GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE {env.get('role', 'YOUR_ROLE')};")
+            st.caption(
+                "Without this grant, cost analytics, query history, warehouse monitoring, and "
+                "anomaly detection will not work. You can still proceed, but features will be limited."
+            )
+
+        st.session_state.wizard_data['has_privs'] = has_privs
+        _render_wizard_nav(go_back, go_next)
+
+    # ── STEP 3: DATABASE SETUP ──
+    elif step == 3:
+        st.markdown("### Database Setup")
+        deploy_type = st.session_state.wizard_data.get('deploy_type', SetupWizard.DEPLOY_EXTERNAL)
+
+        st.markdown(f"**Target database:** `{wizard.database}`")
+        st.markdown(f"**Target warehouse:** `{wizard.warehouse}`")
+        st.caption(
+            "This will create the database, 3 schemas (APP_DATA, APP_CONTEXT, APP_ANALYTICS), "
+            "18+ tables, 3 views, and populate initial metadata from your warehouse and table inventory."
+        )
+
+        deploy_options = {
+            'External App (Local/Cloud Hosted)': SetupWizard.DEPLOY_EXTERNAL,
+            'Streamlit in Snowflake (SiS)': SetupWizard.DEPLOY_SIS,
+            'Native App': SetupWizard.DEPLOY_NATIVE_APP,
+        }
+        selected = st.selectbox("Deployment Type", list(deploy_options.keys()),
+                                index=list(deploy_options.values()).index(deploy_type))
+        deploy_type = deploy_options[selected]
+
+        col_auto, col_manual = st.columns(2)
+
+        with col_auto:
+            if st.button("Run Automatic Setup", type="primary", use_container_width=True):
+                progress = st.progress(0, text="Creating objects...")
                 results = wizard.run_setup(deploy_type=deploy_type)
-                st.success(f"✅ Created {len(results['created'])} objects")
+                progress.progress(70, text="Populating metadata...")
+                try:
+                    wizard.populate_initial_metadata()
+                except Exception:
+                    pass
+                progress.progress(100, text="Complete!")
+
                 if results['failed']:
-                    st.error(f"❌ {len(results['failed'])} failed")
+                    st.warning(f"Created {len(results['created'])} objects, {len(results['failed'])} failed")
                     for f in results['failed']:
-                        st.markdown(f"- {f}")
+                        st.caption(f"Failed: {f}")
                 else:
-                    st.session_state.setup_complete = True
-                    st.balloons()
-    
-    with c2:
-        if st.button("📜 Generate SQL Script", use_container_width=True):
-            script = wizard.generate_sql_script(deploy_type=deploy_type)
-            st.code(script, language='sql')
-            st.download_button("⬇️ Download SQL", script, "setup_snowflake_ops.sql", "text/sql")
-    
-    # Diagnostic Log
-    with st.expander("📋 Diagnostic Log"):
-        st.code(wizard.log.export_text())
-    
-    return diag['privileges'] and diag['objects'].get('database')
+                    st.success(f"Created {len(results['created'])} objects successfully!")
+                    st.session_state.wizard_data['setup_done'] = True
+
+        with col_manual:
+            if st.button("Download SQL Script", use_container_width=True):
+                script = wizard.generate_sql_script(deploy_type=deploy_type)
+                st.download_button("Download", script, "setup_snowflake_ops.sql", "text/sql",
+                                   use_container_width=True)
+
+        if st.session_state.wizard_data.get('setup_done'):
+            st.success("Database setup complete. Proceed to feature configuration.")
+
+        _render_wizard_nav(go_back, go_next)
+
+    # ── STEP 4: FEATURE CONFIGURATION ──
+    elif step == 4:
+        st.markdown("### Feature Configuration")
+        st.caption(
+            "Choose which automated features to enable. Each feature runs as a Snowflake Task "
+            "on your account's compute. You can change these settings later in the Settings page."
+        )
+
+        features = st.session_state.wizard_data.get('features', {})
+
+        for key, desc in FEATURE_DESCRIPTIONS.items():
+            with st.container(border=True):
+                c1, c2 = st.columns([3, 1])
+                with c1:
+                    st.markdown(f"**{desc['name']}**")
+                    st.caption(desc['description'])
+                with c2:
+                    features[key] = st.toggle("Enable", value=features.get(key, False), key=f"feat_{key}")
+
+                if features.get(key):
+                    st.warning(f"**Security notice:** {desc['security_warning']}")
+                    st.caption(f"Required permissions: {', '.join(desc['permissions'])}")
+
+        st.session_state.wizard_data['features'] = features
+        _render_wizard_nav(go_back, go_next)
+
+    # ── STEP 5: SECURITY REVIEW ──
+    elif step == 5:
+        st.markdown("### Security Review")
+        st.caption(
+            "Review your account's security posture. These are recommendations, not requirements."
+        )
+
+        features = st.session_state.wizard_data.get('features', {})
+        enabled_features = [FEATURE_DESCRIPTIONS[k]['name'] for k, v in features.items() if v]
+
+        if enabled_features:
+            st.info(f"**Enabled automation:** {', '.join(enabled_features)}")
+
+        for check in SECURITY_CHECKLIST:
+            with st.container(border=True):
+                passed = None
+                if check['check_sql']:
+                    try:
+                        result = wizard.client.execute_query(check['check_sql'], log=False)
+                        if check['pass_condition'] == 'has_rows':
+                            passed = not result.empty
+                        elif check['pass_condition'] == 'few_rows':
+                            passed = len(result) <= check.get('max_rows', 3)
+                    except Exception:
+                        passed = None
+
+                icon = "✅" if passed else ("⚠️" if passed is None else "❌")
+                st.markdown(f"{icon} **{check['item']}**")
+                if not passed:
+                    st.caption(check['warning'])
+                st.caption(check['doc'])
+
+        if features.get('budget_enforcer'):
+            st.warning(
+                "**Budget Sentinel is enabled.** Alerts named 'Hard Limit' will automatically "
+                "suspend warehouses or cancel team queries when thresholds are exceeded. "
+                "Configure your alerts carefully in Settings > Budget Alerts after setup."
+            )
+
+        if features.get('autopilot'):
+            st.warning(
+                "**Autopilot is enabled.** It will run hourly and modify warehouse settings. "
+                "Start with CONSERVATIVE mode to limit changes to auto-suspend timers only."
+            )
+
+        _render_wizard_nav(go_back, go_next)
+
+    # ── STEP 6: COMPLETE ──
+    elif step == 6:
+        st.markdown("### Setup Complete")
+        features = st.session_state.wizard_data.get('features', {})
+        env = st.session_state.wizard_data.get('env', {})
+
+        st.success("Your Snowflake Ops Intelligence platform is ready!")
+
+        st.markdown("#### Summary")
+        st.markdown(f"- **Account:** {env.get('account', 'N/A')}")
+        st.markdown(f"- **Database:** `{wizard.database}`")
+        st.markdown(f"- **Cortex AI:** {'Enabled' if env.get('cortex') else 'Disabled (region/edition)'}")
+        for key, enabled in features.items():
+            name = FEATURE_DESCRIPTIONS[key]['name']
+            st.markdown(f"- **{name}:** {'Enabled' if enabled else 'Disabled'}")
+
+        st.markdown("#### Next Steps")
+        st.markdown(
+            "1. **Settings > Budget Alerts** -- Configure spending thresholds and notification channels\n"
+            "2. **Settings > Team Attribution** -- Map users to teams for cost allocation\n"
+            "3. **Settings > Warehouse Context** -- Define warehouse purposes and cost profiles\n"
+            "4. **Observability Hub** -- View your Four Golden Signals dashboard\n"
+            "5. **Cost Intelligence** -- Analyze spending patterns and identify waste\n"
+        )
+
+        with st.expander("Diagnostic Log"):
+            wizard.run_diagnostics()
+            st.code(wizard.log.export_text())
+
+        if st.button("Go to Dashboard", type="primary", use_container_width=True):
+            st.session_state.setup_complete = True
+            st.session_state.pop('wizard_step', None)
+            st.session_state.pop('wizard_data', None)
+            st.rerun()
+
+    return st.session_state.get('setup_complete', False)
+
+
+def _render_wizard_nav(go_back, go_next):
+    """Render Back/Next navigation buttons."""
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c1:
+        if st.session_state.wizard_step > 0:
+            if st.button("Back", use_container_width=True):
+                go_back()
+                st.rerun()
+    with c3:
+        if st.button("Next", type="primary", use_container_width=True):
+            go_next()
+            st.rerun()

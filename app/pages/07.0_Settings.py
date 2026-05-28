@@ -240,8 +240,7 @@ def render_warehouse_context(client):
         return
     
     if saved_context.empty:
-        st.warning("⚠️ **Warehouse context table not found or empty.**")
-        st.info("Please go to the **Platform Settings** tab and click **Initialize Database** to create the required tables.")
+        st.info("💡 No warehouse context configured yet. Use **Auto-Populate** below or configure each warehouse manually.")
     
     # Helper function defined locally to ensure availability
     def save_warehouse_context_local(client, wh_name, purpose, profile, owner):
@@ -470,8 +469,33 @@ def render_table_context(client):
             bulk_critical = st.checkbox("Mark as Critical", key="bulk_critical")
         
         if st.button("💾 Apply to Selected Tables"):
-            st.info(f"Would save settings for {len(selected_tables)} tables.")
-            st.success("✅ Settings applied (demo mode)")
+            try:
+                path = client.get_schema_path("APP_CONTEXT")
+                count = 0
+                for tbl in selected_tables:
+                    tables_match = tables[tables['TABLE_NAME'] == tbl]
+                    if tables_match.empty:
+                        continue
+                    trow = tables_match.iloc[0]
+                    db = trow['DATABASE_NAME']
+                    schema = trow['SCHEMA_NAME']
+                    merge_q = f"""
+                    MERGE INTO {path}.TABLE_CONTEXT t
+                    USING (SELECT '{db}' AS DATABASE_NAME, '{schema}' AS SCHEMA_NAME, '{tbl}' AS TABLE_NAME) s
+                    ON t.DATABASE_NAME = s.DATABASE_NAME AND t.SCHEMA_NAME = s.SCHEMA_NAME AND t.TABLE_NAME = s.TABLE_NAME
+                    WHEN MATCHED THEN UPDATE SET
+                        FRESHNESS_REQUIREMENT = '{bulk_freshness}',
+                        ACCESS_FREQUENCY = '{bulk_access}',
+                        IS_CRITICAL = {str(bulk_critical).upper()}
+                    WHEN NOT MATCHED THEN INSERT (DATABASE_NAME, SCHEMA_NAME, TABLE_NAME, FRESHNESS_REQUIREMENT, ACCESS_FREQUENCY, IS_CRITICAL)
+                    VALUES (s.DATABASE_NAME, s.SCHEMA_NAME, s.TABLE_NAME, '{bulk_freshness}', '{bulk_access}', {str(bulk_critical).upper()})
+                    """
+                    client.execute_write(merge_q)
+                    count += 1
+                st.success(f"Applied settings to {count} tables.")
+                st.cache_data.clear()
+            except Exception as e:
+                st.error(f"Error applying settings: {e}")
     
     st.divider()
     
@@ -738,13 +762,56 @@ def render_autopilot_settings(client):
         st.info("Autopilot optimizes warehouse 'Auto-Suspend' settings hourly based on usage patterns to save credits.")
 
     st.divider()
-    
+
+    # Anomaly Detection Settings
+    st.markdown("#### 📊 Anomaly Detection Sensitivity")
+    st.caption("Controls the Z-score threshold for cost anomaly alerts. Lower = more sensitive (more alerts), higher = less sensitive.")
+
+    current_z = 2.0
+    try:
+        z_row = client.session.sql(
+            "SELECT SETTING_VALUE FROM APP_CONTEXT.PLATFORM_SETTINGS WHERE SETTING_KEY = 'ANOMALY_Z_THRESHOLD'"
+        ).collect()
+        if z_row:
+            current_z = float(z_row[0][0])
+    except:
+        pass
+
+    z_threshold = st.slider(
+        "Z-Score Threshold",
+        min_value=1.0, max_value=5.0, value=current_z, step=0.25,
+        help="Standard deviations above mean to trigger anomaly. 2.0 = ~2.3% false positive rate, 3.0 = ~0.1%."
+    )
+
+    if st.button("💾 Save Anomaly Threshold"):
+        try:
+            client.session.sql(f"""
+                MERGE INTO APP_CONTEXT.PLATFORM_SETTINGS AS t
+                USING (SELECT 'ANOMALY_Z_THRESHOLD' AS k, '{z_threshold}' AS v) AS s
+                ON t.SETTING_KEY = s.k
+                WHEN MATCHED THEN UPDATE SET SETTING_VALUE = s.v, UPDATED_AT = CURRENT_TIMESTAMP()
+                WHEN NOT MATCHED THEN INSERT (SETTING_KEY, SETTING_VALUE, DESCRIPTION)
+                VALUES (s.k, s.v, 'Z-score threshold for anomaly detection')
+            """).collect()
+            st.success(f"Anomaly threshold set to {z_threshold}")
+        except Exception as e:
+            st.error(f"Error saving threshold: {e}")
+
+    st.divider()
+
     # Controls
     c1, c2, c3 = st.columns(3)
     with c1:
-        mode = st.radio("Optimization Mode", ["CONSERVATIVE", "AGGRESSIVE"], 
-                       help="Conservative: target 5 mins. Aggressive: target 1 min.")
-    
+        mode = st.radio("Optimization Mode", ["CONSERVATIVE", "AGGRESSIVE"],
+                       help="Conservative: auto-suspend tuning only. Aggressive: auto-suspend + warehouse resizing.")
+
+        if mode == "AGGRESSIVE":
+            st.warning(
+                "**AGGRESSIVE mode** will automatically resize warehouses based on load patterns. "
+                "This directly affects compute billing. Warehouses may be upsized (higher cost) or "
+                "downsized (potential queueing). Requires 7+ days of load history."
+            )
+
     with c2:
         if status != 'STARTED':
             if st.button("🚀 Enable Autopilot", type="primary"):
@@ -758,7 +825,7 @@ def render_autopilot_settings(client):
             if st.button("🛑 Pause Autopilot"):
                 manager.disable_autopilot()
                 st.rerun()
-                
+
     st.divider()
     
     # Logs
@@ -792,7 +859,7 @@ def render_autopilot_settings(client):
         if st.button("Deploy Enforcer"):
             from intelligence.budget_enforcer import BudgetEnforcer
             enforcer = BudgetEnforcer(client)
-            if enforcer.deploy_enforcer():
+            if enforcer.deploy_sentinel():
                 st.success("✅ deployed! Running in Safe Mode (Logging Only).")
                 
     with c2:
@@ -926,26 +993,67 @@ def render_platform_settings(client):
     
     # Export/Import
     st.markdown("#### Export Configuration")
-    
+
     col1, col2 = st.columns(2)
-    
+
     with col1:
         if st.button("📥 Export All Settings"):
-            config = {
-                "export_date": datetime.now().isoformat(),
-                "message": "Export functionality coming soon"
-            }
-            st.download_button(
-                label="Download JSON",
-                data=json.dumps(config, indent=2),
-                file_name=f"snowflake_ops_config_{datetime.now().strftime('%Y%m%d')}.json",
-                mime="application/json"
-            )
-    
+            try:
+                export_data = {"export_date": datetime.now().isoformat(), "settings": {}, "alerts": [], "teams": [], "warehouses": []}
+                try:
+                    path = client.get_schema_path("APP_CONTEXT")
+                    settings_df = client.execute_query(f"SELECT SETTING_KEY, SETTING_VALUE FROM {path}.PLATFORM_SETTINGS")
+                    if not settings_df.empty:
+                        export_data["settings"] = dict(zip(settings_df['SETTING_KEY'], settings_df['SETTING_VALUE']))
+                except: pass
+                try:
+                    alerts_df = get_saved_budget_alerts(client)
+                    if not alerts_df.empty:
+                        export_data["alerts"] = alerts_df.to_dict('records')
+                except: pass
+                try:
+                    teams_df = get_saved_team_attribution(client)
+                    if not teams_df.empty:
+                        export_data["teams"] = teams_df.to_dict('records')
+                except: pass
+                try:
+                    wh_df = get_saved_warehouse_context(client)
+                    if not wh_df.empty:
+                        export_data["warehouses"] = wh_df.to_dict('records')
+                except: pass
+                st.download_button(
+                    label="Download JSON",
+                    data=json.dumps(export_data, indent=2, default=str),
+                    file_name=f"snowflake_ops_config_{datetime.now().strftime('%Y%m%d')}.json",
+                    mime="application/json"
+                )
+            except Exception as e:
+                st.error(f"Export error: {e}")
+
     with col2:
         uploaded = st.file_uploader("Import Configuration", type=['json'])
         if uploaded:
-            st.info("Import functionality coming soon")
+            try:
+                import_data = json.loads(uploaded.read().decode('utf-8'))
+                st.json(import_data.get('settings', {}))
+                if st.button("Apply Imported Settings"):
+                    path = client.get_schema_path("APP_CONTEXT")
+                    count = 0
+                    for k, v in import_data.get('settings', {}).items():
+                        safe_k = k.replace("'", "''")
+                        safe_v = str(v).replace("'", "''")
+                        client.execute_write(f"""
+                            MERGE INTO {path}.PLATFORM_SETTINGS t
+                            USING (SELECT '{safe_k}' AS k, '{safe_v}' AS v) s
+                            ON t.SETTING_KEY = s.k
+                            WHEN MATCHED THEN UPDATE SET SETTING_VALUE = s.v, UPDATED_AT = CURRENT_TIMESTAMP()
+                            WHEN NOT MATCHED THEN INSERT (SETTING_KEY, SETTING_VALUE) VALUES (s.k, s.v)
+                        """)
+                        count += 1
+                    st.success(f"Imported {count} settings.")
+                    st.cache_data.clear()
+            except Exception as e:
+                st.error(f"Import error: {e}")
     
     st.divider()
     

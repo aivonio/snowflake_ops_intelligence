@@ -5,7 +5,7 @@ Utils package initialization — SnowOps Intelligence V2.5
 from .snowflake_client import SnowflakeClient, get_snowflake_client
 from .visualization_agent import VisualizationAgent
 from .setup_wizard import SetupWizard, render_setup_wizard
-from .data_service import get_account_metrics, get_daily_credits, get_daily_credits_by_warehouse
+from .data_service import get_account_metrics, get_daily_credits, get_daily_credits_by_warehouse, get_top_users, get_storage_trend, get_workload_metrics, get_warehouse_status
 from .formatters import (
     format_credits,
     format_bytes,
@@ -39,6 +39,10 @@ __all__ = [
     'get_account_metrics',
     'get_daily_credits',
     'get_daily_credits_by_warehouse',
+    'get_top_users',
+    'get_storage_trend',
+    'get_workload_metrics',
+    'get_warehouse_status',
     'format_credits',
     'format_bytes',
     'format_duration_ms',

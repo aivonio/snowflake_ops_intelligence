@@ -1,6 +1,7 @@
 """
-Cortex AI Integration Module
-Provides natural language explanations and AI-powered insights
+Cortex AI Integration Module (utils layer — takes a Snowpark session).
+Used by page-level code for simple completions.
+See also intelligence/cortex_ai.py for the client-based variant used by agent_runner.
 """
 
 import streamlit as st

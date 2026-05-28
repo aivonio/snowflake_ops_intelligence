@@ -458,9 +458,9 @@ def render_burn_rate(client):
         return
     
     # Calculate burn metrics
-    total_used = burn_data['CUMULATIVE_CREDITS'].iloc[-1] if not burn_data.empty else 0
-    remaining = budget - total_used
-    avg_daily = burn_data['DAILY_CREDITS'].mean()
+    total_used = float(burn_data['CUMULATIVE_CREDITS'].iloc[-1]) if not burn_data.empty else 0
+    remaining = float(budget) - total_used
+    avg_daily = float(burn_data['DAILY_CREDITS'].mean())
     
     # Estimate days until budget exhausted
     days_remaining = int(remaining / avg_daily) if avg_daily > 0 else float('inf')

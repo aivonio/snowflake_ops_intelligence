@@ -7,7 +7,7 @@ version:
 
 artifacts:
   readme: README.md
-  setup_script: setup.sql
+  setup_script: setup/master_setup.sql
   default_streamlit: app/streamlit_app.py
 
 configuration:

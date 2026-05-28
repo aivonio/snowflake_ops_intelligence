@@ -931,8 +931,8 @@ def render_cost_overview(client, days):
             
             for _, row in wh_costs_df.iterrows():
                 wh_name = row['WAREHOUSE_NAME']
-                credits = row['TOTAL_CREDITS']
-                
+                credits = float(row['TOTAL_CREDITS'])
+
                 if credits > 0.1: # Show significant only
                     sources.append(root_idx)
                     targets.append(label_map[wh_name])
@@ -953,11 +953,11 @@ def render_cost_overview(client, days):
                 if total_time > 0:
                     # Aggregate by Display User (grouping 'Others')
                     user_agg = wh_usage.groupby('DISPLAY_USER')['TOTAL_TIME_MS'].sum().reset_index()
-                    
+
                     for _, u_row in user_agg.iterrows():
                         user_name = u_row['DISPLAY_USER']
-                        time_share = u_row['TOTAL_TIME_MS'] / total_time
-                        user_credits = wh_credits * time_share
+                        time_share = float(u_row['TOTAL_TIME_MS']) / float(total_time)
+                        user_credits = float(wh_credits) * time_share
                         
                         if user_credits > 0.05: # Minimum visual threshold
                             sources.append(label_map[wh])

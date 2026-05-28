@@ -8,6 +8,8 @@ import streamlit as st
 import pandas as pd
 import os
 import sys
+import altair as alt
+import calendar
 from datetime import datetime, timedelta
 
 # --- STANDALONE PATH FIX ---
@@ -27,7 +29,7 @@ except (NameError, TypeError):
 try:
     from utils.snowflake_client import SnowflakeClient
     from utils.styles import apply_global_styles, render_metric_card, render_page_header, COLORS
-    from utils.data_service import get_account_metrics, get_daily_credits, get_daily_credits_by_warehouse
+    from utils.data_service import get_account_metrics, get_daily_credits, get_daily_credits_by_warehouse, get_top_users, get_storage_trend, get_workload_metrics, get_warehouse_status
 except ImportError:
     # Fallback for different stage structures
     st.error("Error: Could not find 'utils' folder. Please ensure it is uploaded to the same stage.")
@@ -130,17 +132,19 @@ if not st.session_state.authenticated:
             st.session_state.user_context = ctx
             st.session_state.snowflake_client = client
             st.session_state.is_native_app = True # Flag for UI adjustments
-            
+
             # --- SELF HEALING / INIT (Native App Mode) ---
             try:
                 from utils.init_db import init_database
                 with st.spinner("Checking system integrity..."):
                     init_database(client)
-            except:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Native app self-healing skipped: {e}")
             # ---------------------------
-    except:
-        pass # Not a native app, proceed to login page
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug(f"Native app init skipped: {e}")
 
 if not st.session_state.authenticated:
     login_page()
@@ -159,64 +163,11 @@ def check_first_run(_client) -> bool:
         return True # Table doesn't exist, is first run
 
 def run_setup_wizard(_client):
-    """Display a setup wizard and create required database objects."""
-    st.title("🚀 Welcome to Snowflake Ops Intelligence")
-    st.markdown("---")
-    st.info("It looks like this is your first time running the app. Let's set things up!")
-    
-    app_db = _client.get_app_db()
-    
-    st.markdown(f"**Target Database**: `{app_db}`")
-    
-    if st.button("🔧 Initialize Database & Tables", type="primary"):
-        with st.spinner("Creating database and tables..."):
-            try:
-                session = _client.session
-                # 1. Create Database & Schemas
-                session.sql(f"CREATE DATABASE IF NOT EXISTS {app_db}").collect()
-                session.sql(f"CREATE SCHEMA IF NOT EXISTS {app_db}.APP_CONTEXT").collect()
-                session.sql(f"CREATE SCHEMA IF NOT EXISTS {app_db}.APP_ANALYTICS").collect()
-                
-                # 2. Create Core Tables
-                tables_ddl = [
-                    f"""CREATE TABLE IF NOT EXISTS {app_db}.APP_CONTEXT.PLATFORM_SETTINGS (
-                        SETTING_KEY VARCHAR PRIMARY KEY, SETTING_VALUE VARCHAR, DESCRIPTION VARCHAR,
-                        UPDATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP())""",
-                    f"""CREATE TABLE IF NOT EXISTS {app_db}.APP_CONTEXT.WAREHOUSE_CONTEXT (
-                        WAREHOUSE_NAME VARCHAR PRIMARY KEY, PURPOSE VARCHAR DEFAULT 'GENERAL', SIZE VARCHAR,
-                        COST_PROFILE VARCHAR DEFAULT 'BALANCED', CONCURRENCY_TOLERANCE VARCHAR DEFAULT 'MEDIUM',
-                        OWNER_TEAM VARCHAR, NOTES VARCHAR, UPDATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP())""",
-                    f"""CREATE TABLE IF NOT EXISTS {app_db}.APP_CONTEXT.TABLE_CONTEXT (
-                        DATABASE_NAME VARCHAR, SCHEMA_NAME VARCHAR, TABLE_NAME VARCHAR,
-                        FRESHNESS_REQUIREMENT VARCHAR DEFAULT 'DAILY', ACCESS_FREQUENCY VARCHAR DEFAULT 'UNKNOWN',
-                        IS_CRITICAL BOOLEAN DEFAULT FALSE, PRIMARY KEY (DATABASE_NAME, SCHEMA_NAME, TABLE_NAME))""",
-                    f"""CREATE TABLE IF NOT EXISTS {app_db}.APP_CONTEXT.TEAM_ATTRIBUTION (
-                        USER_NAME VARCHAR PRIMARY KEY, TEAM_NAME VARCHAR, DEPARTMENT VARCHAR,
-                        COST_CENTER VARCHAR, BUDGET_LIMIT_CREDITS FLOAT, UPDATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP())""",
-                    f"""CREATE TABLE IF NOT EXISTS {app_db}.APP_CONTEXT.BUDGET_ALERTS (
-                        ALERT_ID NUMBER AUTOINCREMENT PRIMARY KEY, ALERT_NAME VARCHAR, ALERT_TYPE VARCHAR,
-                        TARGET_NAME VARCHAR, THRESHOLD_CREDITS FLOAT, THRESHOLD_PERCENTAGE FLOAT,
-                        NOTIFICATION_CHANNEL VARCHAR DEFAULT 'DASHBOARD', IS_ACTIVE BOOLEAN DEFAULT TRUE)""",
-                    f"""CREATE TABLE IF NOT EXISTS {app_db}.APP_ANALYTICS.METADATA_CACHE (
-                        CACHE_KEY VARCHAR PRIMARY KEY, CACHE_VALUE VARIANT, EXPIRY_TIME TIMESTAMP_NTZ)""",
-                    f"""CREATE TABLE IF NOT EXISTS {app_db}.APP_ANALYTICS.QUERY_BENCHMARK (
-                        BENCHMARK_ID NUMBER AUTOINCREMENT PRIMARY KEY, QUERY_TEXT VARCHAR, QUERY_HASH VARCHAR,
-                        RUN_TYPE VARCHAR, PREDICTED_COST_CREDITS FLOAT, ACTUAL_COST_CREDITS FLOAT,
-                        PREDICTED_TIME_MS NUMBER, ACTUAL_TIME_MS NUMBER, BYTES_SCANNED NUMBER,
-                        WAREHOUSE_USED VARCHAR, WAREHOUSE_SIZE VARCHAR, OPTIMIZATION_APPLIED VARCHAR,
-                        COST_SAVINGS_CREDITS FLOAT, TIME_SAVINGS_MS NUMBER, RUN_TIMESTAMP TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP())"""
-                ]
-                for ddl in tables_ddl:
-                    session.sql(ddl).collect()
-                
-                st.success("✅ Setup Complete! All tables created successfully.")
-                st.session_state.setup_complete = True
-                time.sleep(1)
-                st.rerun()
-            except Exception as e:
-                st.error(f"Setup Failed: {e}")
-                st.info("Please ensure you have `CREATE DATABASE` / `CREATE TABLE` privileges.")
-    st.stop()
+    """Delegate to the full multi-step setup wizard."""
+    from utils.setup_wizard import render_setup_wizard
+    result = render_setup_wizard(_client)
+    if not result:
+        st.stop()
 
 # --- CHECK FOR FIRST RUN ---
 client = st.session_state.snowflake_client
@@ -230,195 +181,7 @@ user_ctx = st.session_state.user_context
 user_role = user_ctx.get('role', 'UNKNOWN')
 
 # Sidebar Navigation Logic
-# Sidebar Navigation Logic
 from utils.styles import render_sidebar
-
-
-@st.cache_data(ttl=300)
-def get_account_overview(_session):
-    """Get high-level account metrics with robust error handling."""
-    result = {
-        'total_credits': 0, 'compute_credits': 0, 'cloud_credits': 0, 
-        'warehouse_count': 0, 'query_count': 0, 'failed_queries': 0,
-        'storage_tb': 0, 'active_users': 0, 'is_restricted': False, 'error_detail': ''
-    }
-    
-    try:
-        # 1. Credits (Last 30 Days)
-        credits_df = _session.sql("""
-        SELECT 
-            COALESCE(SUM(CREDITS_USED), 0) as total_credits,
-            COALESCE(SUM(CREDITS_USED_COMPUTE), 0) as compute_credits,
-            COALESCE(SUM(CREDITS_USED_CLOUD_SERVICES), 0) as cloud_credits
-        FROM SNOWFLAKE.ACCOUNT_USAGE.METERING_HISTORY
-        WHERE START_TIME >= DATEADD(day, -30, CURRENT_TIMESTAMP())
-        """).to_pandas()
-        result['total_credits'] = float(credits_df.iloc[0, 0]) if not credits_df.empty else 0
-        result['compute_credits'] = float(credits_df.iloc[0, 1]) if not credits_df.empty else 0
-        result['cloud_credits'] = float(credits_df.iloc[0, 2]) if not credits_df.empty else 0
-    except Exception as e:
-        result['error_detail'] += f"Credits: {e}; "
-        
-    try:
-        # 2. Warehouses (count from SHOW is more reliable)
-        wh_df = _session.sql("SHOW WAREHOUSES").to_pandas()
-        result['warehouse_count'] = len(wh_df) if not wh_df.empty else 0
-    except Exception as e:
-        result['error_detail'] += f"Warehouses: {e}; "
-
-    try:
-        # 3. Queries (Last 30 Days) - Use COALESCE for NULL safety
-        query_df = _session.sql("""
-        SELECT 
-            COALESCE(COUNT(*), 0) as total_queries,
-            COALESCE(COUNT(CASE WHEN EXECUTION_STATUS != 'SUCCESS' THEN 1 END), 0) as failed_queries
-        FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
-        WHERE START_TIME >= DATEADD(day, -30, CURRENT_TIMESTAMP())
-        """).to_pandas()
-        result['query_count'] = int(query_df.iloc[0, 0]) if not query_df.empty else 0
-        result['failed_queries'] = int(query_df.iloc[0, 1]) if not query_df.empty else 0
-    except Exception as e:
-        result['error_detail'] += f"Queries: {e}; "
-        result['is_restricted'] = True # Mark as restricted if query history fails
-        
-    try:
-        # 4. Storage (Current)
-        storage_df = _session.sql("""
-        SELECT 
-            COALESCE(SUM(AVERAGE_DATABASE_BYTES + AVERAGE_STAGE_BYTES + AVERAGE_FAILSAFE_BYTES) / 1e12, 0) as tb_total
-        FROM SNOWFLAKE.ACCOUNT_USAGE.STORAGE_USAGE
-        WHERE USAGE_DATE = (SELECT MAX(USAGE_DATE) FROM SNOWFLAKE.ACCOUNT_USAGE.STORAGE_USAGE)
-        """).to_pandas()
-        result['storage_tb'] = float(storage_df.iloc[0, 0]) if not storage_df.empty else 0
-    except Exception as e:
-        result['error_detail'] += f"Storage: {e}; "
-        
-    try:
-        # 5. Active Users (Last 30 Days)
-        users_df = _session.sql("""
-        SELECT COALESCE(COUNT(DISTINCT USER_NAME), 0) as active_users
-        FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
-        WHERE START_TIME >= DATEADD(day, -30, CURRENT_TIMESTAMP())
-        """).to_pandas()
-        result['active_users'] = int(users_df.iloc[0, 0]) if not users_df.empty else 0
-        result['active_users'] = int(users_df.iloc[0, 0]) if not users_df.empty else 0
-    except Exception as e:
-        result['error_detail'] += f"Users: {e}; "
-        
-    try:
-        # 6. Active Alerts (Custom)
-        alerts_df = _session.sql("SELECT COUNT(*) FROM APP_CONTEXT.BUDGET_ALERTS WHERE IS_ACTIVE = TRUE").to_pandas()
-        result['active_alerts'] = int(alerts_df.iloc[0, 0]) if not alerts_df.empty else 0
-    except Exception:
-        result['active_alerts'] = 0
-    
-    return result
-
-
-@st.cache_data(ttl=300)
-def get_daily_credits(_session, days=30):
-    """Get daily credit usage trend"""
-    try:
-        query = f"""
-        SELECT 
-            DATE(START_TIME) as usage_date,
-            SUM(CREDITS_USED) as credits_used
-        FROM SNOWFLAKE.ACCOUNT_USAGE.METERING_HISTORY
-        WHERE START_TIME >= DATEADD(day, -{days}, CURRENT_TIMESTAMP())
-        GROUP BY DATE(START_TIME)
-        ORDER BY usage_date
-        """
-        return _session.sql(query).to_pandas()
-    except Exception as e:
-        st.warning(f"Could not fetch daily credits: {e}")
-        return pd.DataFrame()
-
-
-@st.cache_data(ttl=300)
-def get_top_users(_session, limit=5):
-    """Get top users by query count"""
-    try:
-        query = f"""
-        SELECT 
-            USER_NAME,
-            COUNT(*) as query_count,
-            SUM(CREDITS_USED_CLOUD_SERVICES) as credits_approx
-        FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
-        WHERE START_TIME >= DATEADD(day, -7, CURRENT_TIMESTAMP())
-        GROUP BY 1
-        ORDER BY 2 DESC
-        LIMIT {limit}
-        """
-        return _session.sql(query).to_pandas()
-    except Exception:
-        return pd.DataFrame()
-
-
-@st.cache_data(ttl=600)
-def get_storage_trend(_session, days=30):
-    """Get storage usage trend TB"""
-    try:
-        query = f"""
-        SELECT 
-            USAGE_DATE,
-            AVERAGE_DATABASE_BYTES / 1e12 as db_tb,
-            AVERAGE_STAGE_BYTES / 1e12 as stage_tb,
-            AVERAGE_FAILSAFE_BYTES / 1e12 as failsafe_tb
-        FROM SNOWFLAKE.ACCOUNT_USAGE.STORAGE_USAGE
-        WHERE USAGE_DATE >= DATEADD(day, -{days}, CURRENT_TIMESTAMP())
-        ORDER BY USAGE_DATE
-        """
-        return _session.sql(query).to_pandas()
-    except Exception:
-        return pd.DataFrame()
-
-
-@st.cache_data(ttl=300)
-def get_workload_metrics(_session, days=7):
-    """Get top workloads (grouped by Query Tag or Pattern)"""
-    try:
-        query = f"""
-        SELECT 
-            COALESCE(NULLIF(QUERY_TAG, ''), LEFT(QUERY_TEXT, 40)) as workload,
-            'Query' as type,
-            COUNT(DISTINCT USER_NAME) as users,
-            COUNT(DISTINCT WAREHOUSE_NAME) as warehouses,
-            AVG(TOTAL_ELAPSED_TIME)/1000 as avg_duration_s,
-            COUNT(*) as run_count
-        FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
-        WHERE START_TIME >= DATEADD(day, -{days}, CURRENT_TIMESTAMP())
-            AND TOTAL_ELAPSED_TIME > 0
-        GROUP BY 1, 2
-        ORDER BY run_count DESC
-        LIMIT 10
-        """
-        return _session.sql(query).to_pandas()
-    except Exception:
-        return pd.DataFrame()
-
-
-@st.cache_data(ttl=60)
-def get_warehouse_status(_client):
-    """Get current warehouse status using the client's normalized execution."""
-    # Use client.execute_query instead of _session.sql to get normalized columns
-    df = _client.execute_query("SHOW WAREHOUSES")
-    
-    if not df.empty:
-        # Map columns robustly
-        if 'NAME' in df.columns:
-            df['WAREHOUSE_NAME'] = df['NAME']
-        
-        if 'STATUS' in df.columns:
-            df['STATE'] = df['STATUS']
-        elif 'STATE' not in df.columns:
-            df['STATE'] = 'UNKNOWN'
-            
-        return df
-    return pd.DataFrame()
-
-
-# render_metric_card is now imported from utils.styles
-
 
 
 # --- Main Dashboard Logic ---
@@ -446,12 +209,39 @@ def run_dashboard():
         """, unsafe_allow_html=True)
 
     with col_action:
-        # Quick Actions
+        # Quick Actions & Auto-Refresh
         st.markdown('<div style="text-align: right; padding-top: 10px;">', unsafe_allow_html=True)
+
+        ar_col1, ar_col2 = st.columns(2)
+        with ar_col1:
+            auto_refresh = st.toggle("Auto-refresh", value=st.session_state.get('auto_refresh', False), key="auto_refresh_toggle")
+            st.session_state['auto_refresh'] = auto_refresh
+        with ar_col2:
+            refresh_interval = st.selectbox(
+                "Interval", options=[30, 60, 120, 300],
+                format_func=lambda x: f"{x}s" if x < 60 else f"{x//60}m",
+                index=1, key="refresh_interval", label_visibility="collapsed"
+            )
+
         if st.button("Refresh Data", use_container_width=True):
-             st.cache_data.clear() # Clear all cached data
+             st.cache_data.clear()
+             st.session_state['last_refreshed'] = datetime.now()
              st.rerun()
+
+        if st.session_state.get('last_refreshed'):
+            st.caption(f"Last refreshed: {st.session_state['last_refreshed'].strftime('%H:%M:%S')}")
         st.markdown('</div>', unsafe_allow_html=True)
+
+    # Auto-refresh via st.fragment if enabled
+    if auto_refresh:
+        try:
+            @st.fragment(run_every=timedelta(seconds=refresh_interval))
+            def _auto_refresh_tick():
+                st.cache_data.clear()
+                st.session_state['last_refreshed'] = datetime.now()
+            _auto_refresh_tick()
+        except (TypeError, AttributeError):
+            pass
 
     st.markdown("---")
 
@@ -471,7 +261,7 @@ def run_dashboard():
     def show_credits_dialog():
         daily = get_daily_credits(session, days=30)
         if not daily.empty:
-            import altair as alt
+
             chart = alt.Chart(daily).mark_area(
                 line={'color': COLORS['primary']}, 
                 color=alt.Gradient(gradient='linear', stops=[
@@ -544,14 +334,9 @@ def run_dashboard():
             st.session_state["show_warehouses"] = True
             st.rerun()
 
-            st.session_state["show_warehouses"] = True
-            st.rerun()
-
     # Second row: Health & Activity & Projections
     row2_c1, row2_c2, row2_c3, row2_c4 = st.columns(4)
     with row2_c1:
-        # Projected Cost
-        import calendar
         today = datetime.now()
         day_of_month = today.day
         last_day = calendar.monthrange(today.year, today.month)[1]
@@ -633,7 +418,7 @@ def run_dashboard():
              if chart_mode == "Warehouse Breakdown":
                  daily_credits = get_daily_credits_by_warehouse(session, days=30)
                  if not daily_credits.empty:
-                     import altair as alt
+         
                      chart = alt.Chart(daily_credits).mark_area(
                          interpolate='monotone',
                          fillOpacity=0.9
@@ -654,7 +439,7 @@ def run_dashboard():
                  # Total Trend (Simple Chart)
                  daily_credits = get_daily_credits(session, days=30)
                  if not daily_credits.empty:
-                     import altair as alt
+         
                      chart = alt.Chart(daily_credits).mark_area(
                          interpolate='monotone',
                          fillOpacity=0.3,

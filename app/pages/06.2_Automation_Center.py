@@ -8,6 +8,10 @@ import json
 
 st.set_page_config(page_title="Automation | SnowOps", page_icon="⚙️", layout="wide")
 
+from utils.styles import apply_global_styles, render_sidebar
+apply_global_styles()
+render_sidebar()
+
 def init():
     if 'snowflake_client' not in st.session_state:
         st.error("⚠️ Not connected."); st.stop()

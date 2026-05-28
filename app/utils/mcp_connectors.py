@@ -98,13 +98,42 @@ class MCPConnectorManager:
 
     # ── Convenience methods for agent tools ──
     def send_notification(self, connector_id: str, message: str, **kwargs) -> Dict:
-        """Send a notification via a connector (used by agents)."""
+        """Send a notification via a connector, delegating to NotificationService."""
         conn = self.get_connector(connector_id)
-        if not conn: return {"status": "ERROR", "message": "Connector not found"}
-        ctype = conn.get('CONNECTOR_TYPE', '')
-        # Log the action
-        self.update_status(connector_id, 'ACTIVE')
-        return {"status": "QUEUED", "message": f"Notification queued via {ctype}", "connector": connector_id}
+        if not conn:
+            return {"status": "ERROR", "message": "Connector not found"}
+
+        ctype = (conn.get('CONNECTOR_TYPE') or '').upper()
+        config = conn.get('CONFIG', {})
+        if isinstance(config, str):
+            try:
+                config = json.loads(config)
+            except Exception:
+                config = {}
+
+        title = kwargs.get('title', 'SnowOps Notification')
+
+        from utils.notifications import NotificationService
+        notifier = NotificationService(self.client)
+
+        notify_config = dict(config)
+        if 'integration_name' not in notify_config:
+            notify_config['integration_name'] = conn.get('CONNECTOR_NAME', '')
+
+        ok, result_msg = notifier.send_with_retry(
+            channel_type=ctype,
+            config=notify_config,
+            title=title,
+            message=message,
+            max_retries=3,
+        )
+
+        self.update_status(connector_id, 'ACTIVE' if ok else 'ERROR')
+        return {
+            "status": "DELIVERED" if ok else "FAILED",
+            "message": result_msg,
+            "connector": connector_id,
+        }
 
 
 def get_mcp_manager(client=None):

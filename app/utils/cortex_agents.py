@@ -204,7 +204,7 @@ class CortexAgentManager:
 
     # ── Agent Execution ──
     def run_agent(self, agent_id: str, query: str, session_id: str = None) -> Dict:
-        """Execute a query against an agent using Cortex COMPLETE with tool execution."""
+        """Execute a query against an agent using Cortex COMPLETE with guardrails and tool execution."""
         agent = self.get_agent(agent_id)
         if not agent:
             return {"status": "ERROR", "response": "Agent not found"}
@@ -218,6 +218,45 @@ class CortexAgentManager:
                 guardrails = json.loads(guardrails)
             except:
                 guardrails = {}
+
+        # ── Enforce guardrails ──
+        blocked_topics = guardrails.get('blocked_topics', [])
+        if blocked_topics:
+            query_lower = query.lower()
+            for topic in blocked_topics:
+                if topic.lower() in query_lower:
+                    return {
+                        "status": "BLOCKED",
+                        "response": f"Query blocked: topic '{topic}' is restricted by agent guardrails.",
+                        "session_id": session_id or "",
+                    }
+
+        budget_limit = guardrails.get('budget_limit_credits', 0)
+        if budget_limit and budget_limit > 0:
+            try:
+                usage_df = self.client.execute_query(f"""
+                    SELECT COALESCE(SUM(TOKENS_USED), 0) AS total_tokens
+                    FROM {self.app_db}.APP_CONTEXT.AGENT_RUNS
+                    WHERE AGENT_ID = '{agent_id}'
+                      AND CREATED_AT >= DATEADD(hour, -24, CURRENT_TIMESTAMP())
+                """, log=False)
+                if not usage_df.empty:
+                    total_tokens = float(usage_df.iloc[0].get('TOTAL_TOKENS', 0) or 0)
+                    estimated_credits = total_tokens / 1_000_000
+                    if estimated_credits >= budget_limit:
+                        return {
+                            "status": "BLOCKED",
+                            "response": f"Agent budget exceeded: {estimated_credits:.4f} credits used (limit: {budget_limit}). Resets in 24h.",
+                            "session_id": session_id or "",
+                        }
+            except:
+                pass
+
+        max_tokens = guardrails.get('max_tokens', 4096)
+        if max_tokens:
+            max_chars = int(max_tokens) * 4
+            if len(query) > max_chars:
+                query = query[:max_chars]
 
         # Build enriched prompt with tool context
         tool_context = self._gather_tool_context(tools)
@@ -244,12 +283,15 @@ class CortexAgentManager:
             response = result.iloc[0]['RESPONSE'] if not result.empty else "No response"
             duration = int((datetime.now() - start).total_seconds() * 1000)
 
+            # Estimate tokens from prompt + response length
+            estimated_tokens = (len(full_prompt) + len(str(response))) // 4
+
             # Save to session
             messages.append({"role": "user", "content": query})
             messages.append({"role": "assistant", "content": str(response)[:5000]})
             self._save_session(sid, agent_id, messages)
 
-            # Log the run
+            # Log the run with token estimate
             rid = str(uuid.uuid4())[:8]
             safe_q = query.replace("'", "''")[:5000]
             safe_r = str(response).replace("'", "''")[:10000]
@@ -257,14 +299,15 @@ class CortexAgentManager:
             self.client.execute_query(f"""
                 INSERT INTO {self.app_db}.APP_CONTEXT.AGENT_RUNS
                 (RUN_ID, AGENT_ID, SESSION_ID, USER_QUERY, AGENT_RESPONSE,
-                 TOOLS_USED, DURATION_MS, STATUS)
+                 TOOLS_USED, TOKENS_USED, DURATION_MS, STATUS)
                 VALUES ('{rid}', '{agent_id}', '{sid}', '{safe_q}', '{safe_r}',
-                        PARSE_JSON('{tools_json}'), {duration}, 'SUCCESS')
+                        PARSE_JSON('{tools_json}'), {estimated_tokens}, {duration}, 'SUCCESS')
             """, log=False)
 
             return {
                 "status": "SUCCESS", "response": response, "duration_ms": duration,
                 "session_id": sid, "model": model, "tools_used": tools,
+                "tokens_used": estimated_tokens,
             }
         except Exception as e:
             return {"status": "ERROR", "response": str(e)}

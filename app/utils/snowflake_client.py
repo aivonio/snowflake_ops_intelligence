@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any, List
 import hashlib
 import json
 from datetime import datetime
+import logging
 
 # Snowpark for native app
 try:
@@ -42,7 +43,8 @@ class SnowflakeClient:
             try:
                 # 1. Try Native Environment (Streamlit in Snowflake)
                 self._session = get_active_session()
-            except:
+            except Exception as e:
+                logging.getLogger(__name__).debug(f"Failed to get active Snowflake session: {e}")
                 # 2. Try SaaS / Remote Environment (OAuth)
                 if self._token:
                     try:
@@ -95,7 +97,8 @@ class SnowflakeClient:
                 self._app_db = dbs[0]['name']
             else:
                 self._app_db = "SNOWFLAKE_OPS_INTELLIGENCE" # Future default
-        except:
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"Failed to detect app database: {e}")
             self._app_db = "SNOWFLAKE_OPS_INTELLIGENCE"
             
         return self._app_db
@@ -125,30 +128,31 @@ class SnowflakeClient:
             db_path = self.get_app_db()
             self.session.sql(f"USE DATABASE {db_path}").collect()
             capabilities["can_save_settings"] = True
-        except:
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"Cannot access storage database: {e}")
             capabilities["can_save_settings"] = False
 
         # 1. Test Account Usage (Cost/Query History)
         try:
             self.session.sql("SELECT 1 FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY LIMIT 1").collect()
             capabilities["account_usage"] = True
-        except:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"Cannot access account usage: {e}")
             
         # 2. Test Cortex AI (AI Analyst)
         try:
             # Simple COMPLETE check to see if we have access
             self.session.sql("SELECT SNOWFLAKE.CORTEX.COMPLETE('snowflake-arctic', 'Hello')").collect()
             capabilities["cortex_ai"] = True
-        except:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"Cannot access Cortex AI: {e}")
             
         # 3. Test Warehouse Management (SHOW WAREHOUSES)
         try:
             self.session.sql("SHOW WAREHOUSES").collect()
             capabilities["warehouse_manage"] = True
-        except:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"Cannot manage warehouses: {e}")
             
         return capabilities
 
@@ -197,6 +201,13 @@ class SnowflakeClient:
             # Normalize columns to uppercase and remove quotes for consistency
             if not result.empty:
                 result.columns = [c.upper().replace('"', '').replace("'", "") for c in result.columns]
+                # Convert decimal.Decimal to float to prevent runtime type errors in pandas operations
+                import decimal
+                for col in result.columns:
+                    if result[col].dtype == object and len(result) > 0:
+                        sample = result[col].dropna().iloc[0] if not result[col].dropna().empty else None
+                        if isinstance(sample, decimal.Decimal):
+                            result[col] = result[col].apply(lambda x: float(x) if isinstance(x, decimal.Decimal) else x)
             
             # Log query execution
             if log:
@@ -382,8 +393,9 @@ class SnowflakeClient:
         Get detailed query profile for a specific query
         Includes execution stats, partitions scanned, cache usage
         """
+        safe_id = str(query_id).replace("'", "''")
         query = f"""
-        SELECT 
+        SELECT
             QUERY_ID,
             QUERY_TEXT,
             QUERY_TYPE,
@@ -411,7 +423,7 @@ class SnowflakeClient:
             CREDITS_USED_CLOUD_SERVICES,
             QUERY_LOAD_PERCENT
         FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
-        WHERE QUERY_ID = '{query_id}'
+        WHERE QUERY_ID = '{safe_id}'
         """
         
         result = self.execute_query(query, log=False)
@@ -425,6 +437,8 @@ class SnowflakeClient:
         Find similar queries based on parameterized hash
         Useful for identifying optimization opportunities
         """
+        safe_hash = str(query_hash).replace("'", "''")
+        limit = int(limit)
         query = f"""
         SELECT 
             QUERY_ID,
@@ -437,7 +451,7 @@ class SnowflakeClient:
             PERCENTAGE_SCANNED_FROM_CACHE,
             CREDITS_USED_CLOUD_SERVICES
         FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
-        WHERE QUERY_PARAMETERIZED_HASH = '{query_hash}'
+        WHERE QUERY_PARAMETERIZED_HASH = '{safe_hash}'
             AND START_TIME >= DATEADD(day, -30, CURRENT_TIMESTAMP())
         ORDER BY START_TIME DESC
         LIMIT {limit}
@@ -621,12 +635,18 @@ class SnowflakeClient:
     
     def get_warehouse_utilization_stats(self, days: int = 7) -> pd.DataFrame:
         """
-        Get detailed warehouse utilization stats for AI analysis
-        Metrix: Load, Queue, Spill, Credits
+        Get detailed warehouse utilization stats for AI analysis.
+        Metrics: Load, Queue, Spill, Credits.
         """
-        query = f"""
-        WITH load_metrics AS (
-            SELECT 
+        days = int(days)
+        wh_df = self.get_all_warehouses()
+
+        if wh_df.empty:
+            return pd.DataFrame()
+
+        metrics_query = f"""
+        WITH load AS (
+            SELECT
                 WAREHOUSE_NAME,
                 AVG(AVG_RUNNING) as AVG_RUNNING,
                 MAX(AVG_RUNNING) as MAX_RUNNING,
@@ -636,79 +656,23 @@ class SnowflakeClient:
             WHERE START_TIME >= DATEADD(day, -{days}, CURRENT_TIMESTAMP())
             GROUP BY 1
         ),
-        cost_metrics AS (
-            SELECT 
+        cost AS (
+            SELECT
                 WAREHOUSE_NAME,
                 SUM(CREDITS_USED) as TOTAL_CREDITS
             FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY
             WHERE START_TIME >= DATEADD(day, -{days}, CURRENT_TIMESTAMP())
             GROUP BY 1
-        )
-        SELECT 
-            w.NAME as WAREHOUSE_NAME,
-            w.SIZE,
-            w.AUTO_SUSPEND,
-            w.MIN_CLUSTER_COUNT,
-            w.MAX_CLUSTER_COUNT,
-            w.SCALING_POLICY,
-            l.AVG_RUNNING,
-            l.MAX_RUNNING,
-            l.AVG_QUEUED,
-            l.MAX_QUEUED,
-            c.TOTAL_CREDITS
-        FROM (SHOW WAREHOUSES) w
-        LEFT JOIN load_metrics l ON w.NAME = l.WAREHOUSE_NAME
-        LEFT JOIN cost_metrics c ON w.NAME = c.WAREHOUSE_NAME
-        WHERE w.STATE = 'STARTED' OR c.TOTAL_CREDITS > 0
-        """
-        # Note: SHOW WAREHOUSES result can be queried using result scan or similar, 
-        # but Snowpark/Python connector might not support selecting from SHOW directly in a subquery easily in all contexts.
-        # However, for simplicity and robustness in this app context, let's do a join in Python 
-        # because 'SHOW WAREHOUSES' outputs to a session variable differently.
-        
-        # Better approach for this specific method: 
-        # 1. Get Warehouses
-    def get_warehouse_utilization_stats(self, days: int = 7) -> pd.DataFrame:
-        """
-        Get detailed warehouse utilization stats for AI analysis
-        Metrix: Load, Queue, Spill, Credits
-        """
-        # 1. Get Warehouses Config
-        wh_df = self.get_all_warehouses()
-        
-        if wh_df.empty:
-            return pd.DataFrame()
-            
-        # 2. Get Metrics using CTEs and Joins
-        metrics_query = f"""
-        WITH load AS (
-            SELECT 
-                WAREHOUSE_NAME,
-                AVG(AVG_RUNNING) as AVG_RUNNING,
-                MAX(AVG_RUNNING) as MAX_RUNNING,
-                AVG(AVG_QUEUED_LOAD) as AVG_QUEUED,
-                MAX(AVG_QUEUED_LOAD) as MAX_QUEUED
-            FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_LOAD_HISTORY 
-            WHERE START_TIME >= DATEADD(day, -{days}, CURRENT_TIMESTAMP())
-            GROUP BY 1
-        ),
-        cost AS (
-            SELECT 
-                WAREHOUSE_NAME,
-                SUM(CREDITS_USED) as TOTAL_CREDITS
-            FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY 
-            WHERE START_TIME >= DATEADD(day, -{days}, CURRENT_TIMESTAMP())
-            GROUP BY 1
         ),
         spill AS (
-            SELECT 
+            SELECT
                 WAREHOUSE_NAME,
                 SUM(BYTES_SPILLED_TO_LOCAL_STORAGE) + SUM(BYTES_SPILLED_TO_REMOTE_STORAGE) as TOTAL_SPILL_BYTES
             FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
             WHERE START_TIME >= DATEADD(day, -{days}, CURRENT_TIMESTAMP())
             GROUP BY 1
         )
-        SELECT 
+        SELECT
             COALESCE(l.WAREHOUSE_NAME, c.WAREHOUSE_NAME, s.WAREHOUSE_NAME) as WAREHOUSE_NAME,
             l.AVG_RUNNING,
             l.MAX_RUNNING,
@@ -720,30 +684,21 @@ class SnowflakeClient:
         FULL OUTER JOIN cost c ON l.WAREHOUSE_NAME = c.WAREHOUSE_NAME
         FULL OUTER JOIN spill s ON COALESCE(l.WAREHOUSE_NAME, c.WAREHOUSE_NAME) = s.WAREHOUSE_NAME
         """
-        
+
         metrics = self.execute_query(metrics_query, log=False)
-        
-        # Standardize columns for merge
-        # wh_df handles 'NAME' logic in get_all_warehouses usually, but ensure consistency
+
         if 'NAME' in wh_df.columns:
             wh_df = wh_df.rename(columns={'NAME': 'WAREHOUSE_NAME'})
-            
+
         if metrics.empty:
-            # Return warehouses with empty metrics
             result = wh_df.copy()
-            # Ensure required columns exist
-            cols = ['AVG_RUNNING', 'MAX_RUNNING', 'AVG_QUEUED', 'MAX_QUEUED', 'TOTAL_CREDITS', 'TOTAL_SPILL_BYTES']
-            for c in cols:
+            for c in ['AVG_RUNNING', 'MAX_RUNNING', 'AVG_QUEUED', 'MAX_QUEUED', 'TOTAL_CREDITS', 'TOTAL_SPILL_BYTES']:
                 result[c] = 0
             return result
-        
-        # Merge stats onto the warehouse list
-        # We use LEFT JOIN so we preserve all active warehouses from SHOW WAREHOUSES
+
         final_df = pd.merge(wh_df, metrics, on='WAREHOUSE_NAME', how='left')
-        
-        # Fill missing values for warehouses that had no usage/metrics
         final_df = final_df.fillna(0)
-        
+
         return final_df
 
 
@@ -781,7 +736,8 @@ class SnowflakeClient:
                 
             query = f"LIST {stage_ref}"
             return self.execute_query(query, log=False)
-        except Exception:
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"Failed to list stage files for {stage_name}: {e}")
             return pd.DataFrame()
 
     def read_stage_file(self, stage_name: str, relative_path: str) -> str:
@@ -817,6 +773,33 @@ class SnowflakeClient:
             return ""
         except Exception as e:
             return f"Error reading file: {str(e)}"
+
+    # ========================================================================
+    # SESSION HEALTH & SNOWPARK HELPERS
+    # ========================================================================
+
+    def health_check(self) -> bool:
+        """Validate session is alive. Returns True if healthy."""
+        if self._session is None:
+            return False
+        try:
+            self._session.sql("SELECT 1").collect()
+            return True
+        except Exception:
+            self._session = None
+            return False
+
+    def execute_snowpark(self, query: str):
+        """Execute query and return a Snowpark DataFrame (lazy, not collected)."""
+        if self.session is None:
+            return None
+        return self.session.sql(query)
+
+    def get_table_ref(self, database: str, schema: str, table: str):
+        """Get a Snowpark Table reference for direct DataFrame operations."""
+        if self.session is None:
+            return None
+        return self.session.table(f"{database}.{schema}.{table}")
 
 
 # Global client instance

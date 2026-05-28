@@ -326,8 +326,8 @@ def render_warehouse_status(client):
     # Summary metrics
     total_warehouses = len(warehouses)
     active_warehouses = len(warehouses[warehouses['STATE'] == 'STARTED'])
-    running_queries = warehouses['RUNNING'].sum() if 'RUNNING' in warehouses.columns else 0
-    queued_queries = warehouses['QUEUED'].sum() if 'QUEUED' in warehouses.columns else 0
+    running_queries = int(warehouses['RUNNING'].sum()) if 'RUNNING' in warehouses.columns else 0
+    queued_queries = int(warehouses['QUEUED'].sum()) if 'QUEUED' in warehouses.columns else 0
     
     # Render Metrics (Select.dev Style)
     col1, col2, col3, col4 = st.columns(4)
@@ -540,13 +540,16 @@ def render_performance_analysis(client):
     if not queue_analysis.empty:
         st.markdown("#### Queue Time Heatmap")
         st.caption("*High queue times indicate overloaded warehouses*")
-        
+
+        # Cast to numeric to handle decimal.Decimal from Snowflake
+        queue_analysis['AVG_QUEUE_MS'] = pd.to_numeric(queue_analysis['AVG_QUEUE_MS'], errors='coerce')
+
         # Limit to top warehouses by queue time
         top_wh = queue_analysis.groupby('WAREHOUSE_NAME')['AVG_QUEUE_MS'].mean().nlargest(5).index.tolist()
         filtered_queue = queue_analysis[queue_analysis['WAREHOUSE_NAME'].isin(top_wh)]
         
         if not filtered_queue.empty:
-            filtered_queue['AVG_QUEUE_SEC'] = filtered_queue['AVG_QUEUE_MS'] / 1000
+            filtered_queue['AVG_QUEUE_SEC'] = pd.to_numeric(filtered_queue['AVG_QUEUE_MS'], errors='coerce') / 1000
             
             heatmap = alt.Chart(filtered_queue).mark_rect().encode(
                 x=alt.X('HOUR_OF_DAY:O', title='Hour of Day'),

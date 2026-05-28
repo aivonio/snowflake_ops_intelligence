@@ -1,6 +1,7 @@
 """
-Snowflake Cortex AI Integration
-Uses Snowflake's native AI capabilities for intelligent query analysis and optimization
+Snowflake Cortex AI Integration (intelligence layer — takes a SnowflakeClient).
+Used by agent_runner and intelligence modules.
+See also utils/cortex_ai.py for the session-based variant used by pages.
 """
 
 import pandas as pd
