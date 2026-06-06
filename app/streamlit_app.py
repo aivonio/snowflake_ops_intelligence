@@ -205,7 +205,7 @@ def run_dashboard():
         st.markdown(f"""
         <div style="font-size: 0.9rem; color: var(--snow-text-muted); margin-bottom: 4px;">Home / Dashboard</div>
         <div style="font-size: 1.8rem; font-weight: 700; color: var(--snow-text-main); margin-bottom: 5px;">❄️ Snowflake Ops Intelligence</div>
-        <div style="font-size: 2.5rem; color: #29B5E8; margin-bottom: 25px; font-weight: 800; letter-spacing: -1px;">DevBySatyam X Anktechsol</div>
+        <div style="font-size: 2.5rem; color: #29B5E8; margin-bottom: 25px; font-weight: 800; letter-spacing: -1px;">SnowOps by <a href="https://snowops.aivon.io" target="_blank" style="color: #29B5E8; text-decoration: none;">Aivon.io</a></div>
         """, unsafe_allow_html=True)
 
     with col_action:

@@ -51,6 +51,25 @@ You can deploy the entire application directly from GitHub without cloning the r
 4. Paste it into the worksheet and click **▶ Run All**.
 5. Navigate to **Projects → Streamlit** and launch the **SNOWFLAKE_OPS_INTELLIGENCE** app.
 
+## 📊 Telemetry
+
+SnowOps Intelligence collects **anonymous usage telemetry** to help us improve the product. This is standard practice for open-source tools like VS Code, Next.js, and Homebrew.
+
+**What we collect:** Page navigation events and error reports only — no query content, no data, no PII.
+
+**How it works:** Telemetry is powered by [PostHog](https://posthog.com) and requires explicit setup via `setup/setup_posthog.sql`. It will not work unless your Snowflake admin configures the external access integration.
+
+**Closed network compatibility:** If your organization blocks outbound connections, telemetry simply doesn't fire. The app works perfectly without it.
+
+**How to disable:** Set `TELEMETRY_ENABLED` to `FALSE` in `APP_CONTEXT.PLATFORM_SETTINGS`:
+```sql
+UPDATE SNOWFLAKE_OPS_INTELLIGENCE.APP_CONTEXT.PLATFORM_SETTINGS
+SET SETTING_VALUE = 'FALSE'
+WHERE SETTING_KEY = 'TELEMETRY_ENABLED';
+```
+
 ## Support
+
+SnowOps is built and maintained by [Aivon.io](https://snowops.aivon.io).
 
 For enterprise support, bug reports, or feature requests, please reach out through [snowops.aivon.io](https://snowops.aivon.io).

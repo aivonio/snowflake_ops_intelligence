@@ -35,6 +35,8 @@ def _get_posthog():
     API key is read ONLY from Snowflake's PLATFORM_SETTINGS table.
     This ensures the key is never exposed in source code on GitHub.
     Users configure it once via: setup/setup_posthog.sql
+    
+    Respects the TELEMETRY_ENABLED setting — if set to FALSE, returns None.
     """
     global _posthog_client, _posthog_init_attempted
 
@@ -48,13 +50,14 @@ def _get_posthog():
 
         api_key = None
         host = "https://us.i.posthog.com"
+        telemetry_enabled = True  # Default to enabled if setting not found
 
         try:
             client = st.session_state.get("snowflake_client")
             if client and client.session:
                 result = client.session.sql(
                     "SELECT SETTING_KEY, SETTING_VALUE FROM APP_CONTEXT.PLATFORM_SETTINGS "
-                    "WHERE SETTING_KEY IN ('POSTHOG_API_KEY', 'POSTHOG_HOST')"
+                    "WHERE SETTING_KEY IN ('POSTHOG_API_KEY', 'POSTHOG_HOST', 'TELEMETRY_ENABLED')"
                 ).collect()
                 for row in result:
                     key, val = row[0], row[1]
@@ -62,8 +65,15 @@ def _get_posthog():
                         api_key = val
                     elif key == "POSTHOG_HOST":
                         host = val
+                    elif key == "TELEMETRY_ENABLED":
+                        telemetry_enabled = val.upper().strip() not in ("FALSE", "0", "NO", "OFF")
         except Exception:
             pass
+
+        # Respect user's telemetry preference
+        if not telemetry_enabled:
+            logger.info("Telemetry disabled by user (TELEMETRY_ENABLED=FALSE) — analytics off")
+            return None
 
         if not api_key:
             logger.info("PostHog API key not configured in PLATFORM_SETTINGS — analytics disabled")
@@ -100,8 +110,13 @@ def _get_user_id():
 
 
 def _get_context():
-    """Get common context properties."""
+    """Get common context properties for all events.
+    
+    The 'source' field allows differentiation between Streamlit app 
+    and website events in the PostHog dashboard.
+    """
     ctx = {
+        "source": "streamlit_app",
         "platform": "streamlit_in_snowflake",
         "app": "snowops_intelligence",
         "timestamp": datetime.datetime.utcnow().isoformat(),

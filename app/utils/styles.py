@@ -141,7 +141,7 @@ def render_sidebar():
         with col_gh:
             # REPLACE WITH YOUR GITHUB LINK
             st.markdown(
-                """<a href="https://github.com/devbysatyam" target="_blank" style="text-decoration: none; color: #ffffff; display: flex; align-items: center; justify-content: center; background-color: #333; padding: 10px; border-radius: 5px;">
+                """<a href="https://github.com/devbysatyam/snowflake_ops_intelligence" target="_blank" style="text-decoration: none; color: #ffffff; display: flex; align-items: center; justify-content: center; background-color: #333; padding: 10px; border-radius: 5px;">
                     <img src="https://simpleicons.org/icons/github.svg" width="20" height="20" style="filter: invert(1);">
                 </a>""", 
                 unsafe_allow_html=True
@@ -149,8 +149,8 @@ def render_sidebar():
         with col_li:
              # REPLACE WITH YOUR LINKEDIN LINK
              st.markdown(
-                """<a href="https://www.linkedin.com/in/devbysatyam/" target="_blank" style="text-decoration: none; color: #ffffff; display: flex; align-items: center; justify-content: center; background-color: #0077b5; padding: 10px; border-radius: 5px;">
-                    <img src="https://simpleicons.org/icons/linkedin.svg" width="20" height="20" style="filter: invert(1);">
+                """<a href="https://snowops.aivon.io" target="_blank" style="text-decoration: none; color: #ffffff; display: flex; align-items: center; justify-content: center; background-color: #0077b5; padding: 10px; border-radius: 5px;">
+                    <img src="https://simpleicons.org/icons/safari.svg" width="20" height="20" style="filter: invert(1);">
                 </a>""", 
                 unsafe_allow_html=True
             )
@@ -158,7 +158,7 @@ def render_sidebar():
         st.markdown(
             """
             <div style="text-align: center; margin-top: 10px; font-size: 0.8em; color: #666;">
-                DevBySatyam X Anktechsol
+                SnowOps by <a href="https://snowops.aivon.io" target="_blank" style="color: #29B5E8; text-decoration: none;">Aivon.io</a>
             </div>
             """,
             unsafe_allow_html=True
