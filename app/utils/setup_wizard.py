@@ -501,20 +501,28 @@ class SetupWizard:
                     name_col = 'name' if 'name' in wh_df.columns else 'NAME'
                     size_col = 'size' if 'size' in wh_df.columns else 'SIZE'
                     
+                    values_clauses = []
                     for _, row in wh_df.iterrows():
                         name = row.get(name_col)
                         size = row.get(size_col)
                         if name:
                             purpose = self._infer_warehouse_purpose(name)
-                            merge_sql = f"""
-                            MERGE INTO {self.db}.APP_CONTEXT.WAREHOUSE_CONTEXT AS target
-                            USING (SELECT '{name}' AS NAME, '{size}' AS SIZE, '{purpose}' AS PURPOSE) AS source
-                            ON target.WAREHOUSE_NAME = source.NAME
-                            WHEN NOT MATCHED THEN
-                                INSERT (WAREHOUSE_NAME, SIZE, PURPOSE, COST_PROFILE, OWNER_TEAM)
-                                VALUES (source.NAME, source.SIZE, source.PURPOSE, 'BALANCED', 'PLATFORM_TEAM')
-                            """
-                            self.client.execute_query(merge_sql, log=False)
+                            name_esc = str(name).replace("'", "''")
+                            size_esc = str(size).replace("'", "''")
+                            purpose_esc = str(purpose).replace("'", "''")
+                            values_clauses.append(f"('{name_esc}', '{size_esc}', '{purpose_esc}')")
+
+                    if values_clauses:
+                        values_str = ",\n".join(values_clauses)
+                        merge_sql = f"""
+                        MERGE INTO {self.db}.APP_CONTEXT.WAREHOUSE_CONTEXT AS target
+                        USING (VALUES {values_str}) AS source(NAME, SIZE, PURPOSE)
+                        ON target.WAREHOUSE_NAME = source.NAME
+                        WHEN NOT MATCHED THEN
+                            INSERT (WAREHOUSE_NAME, SIZE, PURPOSE, COST_PROFILE, OWNER_TEAM)
+                            VALUES (source.NAME, source.SIZE, source.PURPOSE, 'BALANCED', 'PLATFORM_TEAM')
+                        """
+                        self.client.execute_query(merge_sql, log=False)
                     self.log.log('Setup', 'Metadata', 'PASS', f"Analysis: {len(wh_df)} warehouses processed")
             except Exception as e:
                 self.log.log('Setup', 'Warehouse Metadata', 'WARN', str(e))
@@ -558,25 +566,22 @@ class SetupWizard:
                     tables_df = self.client.execute_query(discovery_sql, log=False)
                 
                 if not tables_df.empty:
+                    values_clauses = []
                     for _, row in tables_df.iterrows():
-                        db_name = row['TABLE_CATALOG']
-                        schema = row['TABLE_SCHEMA']
-                        table = row['TABLE_NAME']
+                        db_name = str(row['TABLE_CATALOG']).replace("'", "''")
+                        schema = str(row['TABLE_SCHEMA']).replace("'", "''")
+                        table = str(row['TABLE_NAME']).replace("'", "''")
                         rows = row['ROW_COUNT'] if row['ROW_COUNT'] is not None else 0
                         bytes_size = row['BYTES'] if row['BYTES'] is not None else 0
                         is_critical = self._infer_table_criticality(table)
                         
+                        values_clauses.append(f"('{db_name}', '{schema}', '{table}', {rows}, {bytes_size}, {is_critical})")
+
+                    if values_clauses:
+                        values_str = ",\n".join(values_clauses)
                         merge_sql = f"""
                         MERGE INTO {self.db}.APP_CONTEXT.TABLE_CONTEXT AS target
-                        USING (
-                            SELECT 
-                                '{db_name}' AS DB, 
-                                '{schema}' AS SCH, 
-                                '{table}' AS TBL,
-                                {rows} AS RC,
-                                {bytes_size} AS SZ,
-                                {is_critical} AS CRIT
-                        ) AS source
+                        USING (VALUES {values_str}) AS source(DB, SCH, TBL, RC, SZ, CRIT)
                         ON target.DATABASE_NAME = source.DB 
                            AND target.SCHEMA_NAME = source.SCH 
                            AND target.TABLE_NAME = source.TBL
