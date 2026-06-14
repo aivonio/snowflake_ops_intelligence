@@ -20,6 +20,7 @@ try:
     HAS_SNOWPARK = True
 except ImportError:
     HAS_SNOWPARK = False
+    Session = Any  # type: ignore
     st.error("Snowpark not available - this app requires Streamlit in Snowflake")
 
 

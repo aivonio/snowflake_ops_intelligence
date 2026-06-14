@@ -832,11 +832,15 @@ def render_cost_overview(client, days):
     try:
         res = client.session.sql("SELECT SETTING_KEY, SETTING_VALUE FROM APP_CONTEXT.PLATFORM_SETTINGS WHERE SETTING_KEY IN ('COST_PER_CREDIT', 'COST_PER_TB')").collect()
         for r in res:
+        path = client.get_schema_path("APP_CONTEXT")
+        settings_res = client.session.sql(f"SELECT SETTING_KEY, SETTING_VALUE FROM {path}.PLATFORM_SETTINGS WHERE SETTING_KEY IN ('COST_PER_CREDIT', 'COST_PER_TB')").collect()
+        for r in settings_res:
             if r['SETTING_KEY'] == 'COST_PER_CREDIT':
                 COST_PER_CREDIT = float(r['SETTING_VALUE'])
             elif r['SETTING_KEY'] == 'COST_PER_TB':
                 COST_PER_TB = float(r['SETTING_VALUE'])
     except:
+    except Exception as e:
         pass
     
     est_cost = total_credits * COST_PER_CREDIT
@@ -1608,7 +1612,15 @@ def render_forecast(client, days):
     # 2. Calculate Basics
     total_credits = float(trends['TOTAL_CREDITS'].sum())
     avg_daily_burn = float(trends['TOTAL_CREDITS'].mean())
+
     COST_PER_CREDIT = 3.00
+    try:
+        path = client.get_schema_path("APP_CONTEXT")
+        settings_res = client.session.sql(f"SELECT SETTING_VALUE FROM {path}.PLATFORM_SETTINGS WHERE SETTING_KEY = 'COST_PER_CREDIT'").collect()
+        if settings_res:
+            COST_PER_CREDIT = float(settings_res[0]['SETTING_VALUE'])
+    except Exception as e:
+        pass
     
     # Linear Regression for overall trend
     trends['days_from_start'] = (pd.to_datetime(trends['USAGE_DATE']) - pd.to_datetime(trends['USAGE_DATE']).min()).dt.days
