@@ -940,7 +940,6 @@ def render_chart_wizard(df, config=None, chart_key="default"):
                     fig = px.scatter(df, x=x, y=primary_y, title=title)
             
             elif chart_type in ["treemap", "sunburst"]:
-                # --- FIX: ROBUST HIERARCHICAL HANDLING ---
                 path_cols = config.get("path", [x])
                 if isinstance(path_cols, str): path_cols = [path_cols]
                 
