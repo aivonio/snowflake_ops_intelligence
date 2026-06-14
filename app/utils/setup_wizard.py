@@ -502,6 +502,7 @@ class SetupWizard:
                     size_col = 'size' if 'size' in wh_df.columns else 'SIZE'
                     
                     values_clauses = []
+                    values_list = []
                     for _, row in wh_df.iterrows():
                         name = row.get(name_col)
                         size = row.get(size_col)
@@ -517,6 +518,20 @@ class SetupWizard:
                         merge_sql = f"""
                         MERGE INTO {self.db}.APP_CONTEXT.WAREHOUSE_CONTEXT AS target
                         USING (VALUES {values_str}) AS source(NAME, SIZE, PURPOSE)
+                            # Escape single quotes in names just in case
+                            safe_name = str(name).replace("'", "''")
+                            safe_size = str(size).replace("'", "''")
+                            safe_purpose = str(purpose).replace("'", "''")
+                            values_list.append(f"('{safe_name}', '{safe_size}', '{safe_purpose}')")
+
+                    if values_list:
+                        values_str = ",\n".join(values_list)
+                        merge_sql = f"""
+                        MERGE INTO {self.db}.APP_CONTEXT.WAREHOUSE_CONTEXT AS target
+                        USING (
+                            SELECT $1 AS NAME, $2 AS SIZE, $3 AS PURPOSE
+                            FROM VALUES {values_str}
+                        ) AS source
                         ON target.WAREHOUSE_NAME = source.NAME
                         WHEN NOT MATCHED THEN
                             INSERT (WAREHOUSE_NAME, SIZE, PURPOSE, COST_PROFILE, OWNER_TEAM)
@@ -567,6 +582,7 @@ class SetupWizard:
                 
                 if not tables_df.empty:
                     values_clauses = []
+                    values_list = []
                     for _, row in tables_df.iterrows():
                         db_name = str(row['TABLE_CATALOG']).replace("'", "''")
                         schema = str(row['TABLE_SCHEMA']).replace("'", "''")
@@ -582,6 +598,22 @@ class SetupWizard:
                         merge_sql = f"""
                         MERGE INTO {self.db}.APP_CONTEXT.TABLE_CONTEXT AS target
                         USING (VALUES {values_str}) AS source(DB, SCH, TBL, RC, SZ, CRIT)
+                        values_list.append(f"('{db_name}', '{schema}', '{table}', {rows}, {bytes_size}, {is_critical})")
+
+                    if values_list:
+                        values_str = ",\n".join(values_list)
+                        merge_sql = f"""
+                        MERGE INTO {self.db}.APP_CONTEXT.TABLE_CONTEXT AS target
+                        USING (
+                            SELECT 
+                                $1 AS DB,
+                                $2 AS SCH,
+                                $3 AS TBL,
+                                $4 AS RC,
+                                $5 AS SZ,
+                                $6 AS CRIT
+                            FROM VALUES {values_str}
+                        ) AS source
                         ON target.DATABASE_NAME = source.DB 
                            AND target.SCHEMA_NAME = source.SCH 
                            AND target.TABLE_NAME = source.TBL

@@ -171,18 +171,19 @@ def run_check(session):
                 if metric_type == 'TEAM' and 'HARD LIMIT' in name.upper():
                     # For team hard limits: cancel running queries for team users
                     try:
-                        running = session.sql(
-                            f"SELECT qh.QUERY_ID "
+                        running_users = session.sql(
+                            f"SELECT qh.USER_NAME, COUNT(*) as Q_COUNT "
                             f"FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER()) qh "
                             f"JOIN APP_CONTEXT.TEAM_ATTRIBUTION ta ON qh.USER_NAME = ta.USER_NAME "
                             f"WHERE ta.TEAM_NAME = '{safe_target}' "
-                            f"AND qh.EXECUTION_STATUS = 'RUNNING'"
+                            f"AND qh.EXECUTION_STATUS = 'RUNNING' "
+                            f"GROUP BY qh.USER_NAME"
                         ).collect()
                         cancelled = 0
-                        for qrow in running:
+                        for urow in running_users:
                             try:
-                                session.sql(f"SELECT SYSTEM$CANCEL_QUERY('{qrow['QUERY_ID']}')").collect()
-                                cancelled += 1
+                                session.sql(f"SELECT SYSTEM$CANCEL_ALL_QUERIES('{urow['USER_NAME']}')").collect()
+                                cancelled += urow['Q_COUNT']
                             except:
                                 pass
                         if cancelled > 0:

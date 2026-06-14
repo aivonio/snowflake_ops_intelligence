@@ -988,8 +988,50 @@ def render_platform_settings(client):
     
     st.divider()
 
+    # Cost Assumptions
+    st.markdown("#### Global Cost Assumptions")
+    st.caption("*Used for estimating costs across the platform. Update to match your actual Snowflake contract.*")
 
+    current_credit = 3.00
+    current_tb = 23.00
 
+    try:
+        path = client.get_schema_path("APP_CONTEXT")
+        settings_res = client.session.sql(f"SELECT SETTING_KEY, SETTING_VALUE FROM {path}.PLATFORM_SETTINGS WHERE SETTING_KEY IN ('COST_PER_CREDIT', 'COST_PER_TB')").collect()
+        for r in settings_res:
+            if r['SETTING_KEY'] == 'COST_PER_CREDIT':
+                current_credit = float(r['SETTING_VALUE'])
+            elif r['SETTING_KEY'] == 'COST_PER_TB':
+                current_tb = float(r['SETTING_VALUE'])
+    except Exception:
+        pass
+
+    ccol1, ccol2, _ = st.columns([1, 1, 2])
+    with ccol1:
+        new_credit = st.number_input("Cost per Credit ($)", value=current_credit, min_value=0.0, format="%.2f", step=0.1)
+    with ccol2:
+        new_tb = st.number_input("Cost per TB/Month ($)", value=current_tb, min_value=0.0, format="%.2f", step=1.0)
+
+    if st.button("💾 Save Cost Settings"):
+        try:
+            path = client.get_schema_path("APP_CONTEXT")
+            client.session.sql(f"""
+                MERGE INTO {path}.PLATFORM_SETTINGS t
+                USING (
+                    SELECT 'COST_PER_CREDIT' AS k, '{new_credit}' AS v, 'Global Cost Per Credit' AS d
+                    UNION ALL
+                    SELECT 'COST_PER_TB' AS k, '{new_tb}' AS v, 'Global Storage Cost per TB' AS d
+                ) s
+                ON t.SETTING_KEY = s.k
+                WHEN MATCHED THEN UPDATE SET SETTING_VALUE = s.v, UPDATED_AT = CURRENT_TIMESTAMP()
+                WHEN NOT MATCHED THEN INSERT (SETTING_KEY, SETTING_VALUE, DESCRIPTION) VALUES (s.k, s.v, s.d)
+            """).collect()
+            st.success("✅ Cost settings updated successfully!")
+            st.cache_data.clear()
+        except Exception as e:
+            st.error(f"Error saving cost settings: {e}")
+
+    st.divider()
     
     # Export/Import
     st.markdown("#### Export Configuration")
