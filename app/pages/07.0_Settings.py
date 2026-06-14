@@ -876,6 +876,53 @@ def render_platform_settings(client):
     """Render platform settings"""
     st.markdown("### Platform Settings")
     
+    # Cost Configuration
+    st.markdown("#### 💰 Cost Configuration")
+    st.caption("*Set the baseline costs used for estimates across the application*")
+
+    # Fetch current settings
+    current_cost_per_credit = 3.00
+    current_cost_per_tb = 23.00
+    try:
+        res = client.session.sql("SELECT SETTING_KEY, SETTING_VALUE FROM APP_CONTEXT.PLATFORM_SETTINGS WHERE SETTING_KEY IN ('COST_PER_CREDIT', 'COST_PER_TB')").collect()
+        for r in res:
+            if r['SETTING_KEY'] == 'COST_PER_CREDIT':
+                current_cost_per_credit = float(r['SETTING_VALUE'])
+            elif r['SETTING_KEY'] == 'COST_PER_TB':
+                current_cost_per_tb = float(r['SETTING_VALUE'])
+    except:
+        pass
+
+    c1, c2 = st.columns(2)
+    with c1:
+        cost_per_credit = st.number_input("Cost per Credit ($)", min_value=0.01, value=current_cost_per_credit, step=0.10, help="Your contracted rate per Snowflake compute credit.")
+    with c2:
+        cost_per_tb = st.number_input("Cost per TB/Month ($)", min_value=0.01, value=current_cost_per_tb, step=1.00, help="Your contracted rate per TB of storage per month.")
+
+    if st.button("💾 Save Cost Settings", type="primary"):
+        try:
+            settings_to_update = {
+                'COST_PER_CREDIT': str(cost_per_credit),
+                'COST_PER_TB': str(cost_per_tb)
+            }
+
+            for k, v in settings_to_update.items():
+                merge_sql = f"""
+                MERGE INTO APP_CONTEXT.PLATFORM_SETTINGS AS target
+                USING (SELECT '{k}' AS k, '{v}' AS v) AS source
+                ON target.SETTING_KEY = source.k
+                WHEN MATCHED THEN UPDATE SET SETTING_VALUE = source.v, UPDATED_AT = CURRENT_TIMESTAMP()
+                WHEN NOT MATCHED THEN INSERT (SETTING_KEY, SETTING_VALUE, DESCRIPTION) VALUES (source.k, source.v, 'Updated via Settings')
+                """
+                client.session.sql(merge_sql).collect()
+
+            st.success("✅ Cost Settings Saved!")
+            st.cache_data.clear()
+        except Exception as e:
+            st.error(f"Failed to save cost settings: {e}")
+
+    st.divider()
+
     # Initialize database
     st.markdown("#### Database Initialization")
     st.caption("*Run this to create required tables if they don't exist*")

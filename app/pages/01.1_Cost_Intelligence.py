@@ -830,6 +830,8 @@ def render_cost_overview(client, days):
     COST_PER_CREDIT = 3.00 
     COST_PER_TB = 23.00
     try:
+        res = client.session.sql("SELECT SETTING_KEY, SETTING_VALUE FROM APP_CONTEXT.PLATFORM_SETTINGS WHERE SETTING_KEY IN ('COST_PER_CREDIT', 'COST_PER_TB')").collect()
+        for r in res:
         path = client.get_schema_path("APP_CONTEXT")
         settings_res = client.session.sql(f"SELECT SETTING_KEY, SETTING_VALUE FROM {path}.PLATFORM_SETTINGS WHERE SETTING_KEY IN ('COST_PER_CREDIT', 'COST_PER_TB')").collect()
         for r in settings_res:
@@ -837,6 +839,7 @@ def render_cost_overview(client, days):
                 COST_PER_CREDIT = float(r['SETTING_VALUE'])
             elif r['SETTING_KEY'] == 'COST_PER_TB':
                 COST_PER_TB = float(r['SETTING_VALUE'])
+    except:
     except Exception as e:
         pass
     
