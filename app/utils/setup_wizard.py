@@ -501,12 +501,23 @@ class SetupWizard:
                     name_col = 'name' if 'name' in wh_df.columns else 'NAME'
                     size_col = 'size' if 'size' in wh_df.columns else 'SIZE'
                     
+                    values_clauses = []
                     values_list = []
                     for _, row in wh_df.iterrows():
                         name = row.get(name_col)
                         size = row.get(size_col)
                         if name:
                             purpose = self._infer_warehouse_purpose(name)
+                            name_esc = str(name).replace("'", "''")
+                            size_esc = str(size).replace("'", "''")
+                            purpose_esc = str(purpose).replace("'", "''")
+                            values_clauses.append(f"('{name_esc}', '{size_esc}', '{purpose_esc}')")
+
+                    if values_clauses:
+                        values_str = ",\n".join(values_clauses)
+                        merge_sql = f"""
+                        MERGE INTO {self.db}.APP_CONTEXT.WAREHOUSE_CONTEXT AS target
+                        USING (VALUES {values_str}) AS source(NAME, SIZE, PURPOSE)
                             # Escape single quotes in names just in case
                             safe_name = str(name).replace("'", "''")
                             safe_size = str(size).replace("'", "''")
@@ -570,6 +581,7 @@ class SetupWizard:
                     tables_df = self.client.execute_query(discovery_sql, log=False)
                 
                 if not tables_df.empty:
+                    values_clauses = []
                     values_list = []
                     for _, row in tables_df.iterrows():
                         db_name = str(row['TABLE_CATALOG']).replace("'", "''")
@@ -579,6 +591,13 @@ class SetupWizard:
                         bytes_size = row['BYTES'] if row['BYTES'] is not None else 0
                         is_critical = self._infer_table_criticality(table)
                         
+                        values_clauses.append(f"('{db_name}', '{schema}', '{table}', {rows}, {bytes_size}, {is_critical})")
+
+                    if values_clauses:
+                        values_str = ",\n".join(values_clauses)
+                        merge_sql = f"""
+                        MERGE INTO {self.db}.APP_CONTEXT.TABLE_CONTEXT AS target
+                        USING (VALUES {values_str}) AS source(DB, SCH, TBL, RC, SZ, CRIT)
                         values_list.append(f"('{db_name}', '{schema}', '{table}', {rows}, {bytes_size}, {is_critical})")
 
                     if values_list:
