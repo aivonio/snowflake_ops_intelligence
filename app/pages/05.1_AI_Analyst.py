@@ -1027,20 +1027,43 @@ def render_chart_wizard(df, config=None, chart_key="default"):
                         
                     value_col = primary_y[0] if primary_y else (df.columns[2] if len(df.columns) > 2 else None)
                     
-                    if source_col and target_col and value_col:
+                    if source_col and target_col:
+                        df_clean = df.copy()
+
+                        # Clean source and target
+                        df_clean[source_col] = df_clean[source_col].fillna("Unknown").astype(str).replace('', "Unknown")
+                        df_clean[target_col] = df_clean[target_col].fillna("Unknown").astype(str).replace('', "Unknown")
+
+                        # Clean or create value column
+                        if value_col and value_col in df_clean.columns:
+                            df_clean[value_col] = pd.to_numeric(df_clean[value_col], errors='coerce').fillna(1)
+                        else:
+                            value_col = "_Sankey_Count"
+                            df_clean[value_col] = 1
+
+                        # Filter valid links (no self loops, positive values)
+                        df_clean = df_clean[(df_clean[value_col] > 0) & (df_clean[source_col] != df_clean[target_col])]
+
+                        # Aggregate
+                        df_agg = df_clean.groupby([source_col, target_col], as_index=False)[value_col].sum()
+
+                        if df_agg.empty:
+                            raise ValueError("No valid links for Sankey after cleaning")
+
                         # Create unique index mapping
-                        labels = list(set(df[source_col].astype(str).tolist() + df[target_col].astype(str).tolist()))
-                        source_idx = [labels.index(str(s)) for s in df[source_col]]
-                        target_idx = [labels.index(str(t)) for t in df[target_col]]
+                        labels = list(pd.concat([df_agg[source_col], df_agg[target_col]]).unique())
+                        source_idx = [labels.index(s) for s in df_agg[source_col]]
+                        target_idx = [labels.index(t) for t in df_agg[target_col]]
+                        values = df_agg[value_col].tolist()
                         
                         fig = go.Figure(data=[go.Sankey(
                             node=dict(label=labels, pad=15, thickness=20, line=dict(color="black", width=0.5), color=current_seq[:len(labels)]),
-                            link=dict(source=source_idx, target=target_idx, value=df[value_col].tolist())
+                            link=dict(source=source_idx, target=target_idx, value=values)
                         )])
                         fig.update_layout(title_text=title)
                     else:
                         raise ValueError("Not enough columns for Sankey")
-                except:
+                except Exception as e:
                     fig = px.bar(df, x=x, y=primary_y, title=title + " (Sankey Fallback)", color_discrete_sequence=current_seq)
 
             elif chart_type == "histogram":
