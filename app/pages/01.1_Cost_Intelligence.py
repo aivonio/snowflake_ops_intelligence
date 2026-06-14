@@ -826,10 +826,18 @@ def render_cost_overview(client, days):
     if not storage.empty:
         latest_storage_tb = float(storage.iloc[0]['TOTAL_TB'])
 
-    # Cost Estimates (Assuming $3/credit and $23/TB/month - Standard Enterprise)
-    # TODO: Make these configurable in Settings
+    # Cost Estimates
     COST_PER_CREDIT = 3.00 
     COST_PER_TB = 23.00
+    try:
+        res = client.session.sql("SELECT SETTING_KEY, SETTING_VALUE FROM APP_CONTEXT.PLATFORM_SETTINGS WHERE SETTING_KEY IN ('COST_PER_CREDIT', 'COST_PER_TB')").collect()
+        for r in res:
+            if r['SETTING_KEY'] == 'COST_PER_CREDIT':
+                COST_PER_CREDIT = float(r['SETTING_VALUE'])
+            elif r['SETTING_KEY'] == 'COST_PER_TB':
+                COST_PER_TB = float(r['SETTING_VALUE'])
+    except:
+        pass
     
     est_cost = total_credits * COST_PER_CREDIT
     est_storage_cost = latest_storage_tb * COST_PER_TB
