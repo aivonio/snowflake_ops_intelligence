@@ -235,9 +235,16 @@ class AutomationEngine:
         try:
             self.client.execute_query(sql)
             if warehouses:
+                block_parts = ["BEGIN"]
                 for wh in warehouses:
-                    try: self.client.execute_query(f"ALTER WAREHOUSE {wh} SET RESOURCE_MONITOR = {name}")
-                    except: pass
+                    block_parts.append(f"    BEGIN ALTER WAREHOUSE {wh} SET RESOURCE_MONITOR = {name}; EXCEPTION WHEN OTHER THEN NULL; END;")
+                block_parts.append("END;")
+
+                block_sql = "\n".join(block_parts)
+                try:
+                    self.client.execute_query(block_sql)
+                except Exception:
+                    pass
             return {"status": "SUCCESS", "monitor": name}
         except Exception as e:
             return {"status": "ERROR", "error": str(e)}
