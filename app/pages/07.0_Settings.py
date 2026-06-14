@@ -740,7 +740,7 @@ def render_budget_alerts(client):
 
 def render_autopilot_settings(client):
     """Render Autopilot configuration"""
-    st.markdown("### 🤖 Warehouse Autopilot")
+    st.markdown("### 🤖 Automated Savings (Warehouse Autopilot)")
     st.caption("*Automated optimization engine (inspired by Select.dev)*")
     
     from intelligence.autopilot import AutopilotManager
@@ -759,7 +759,7 @@ def render_autopilot_settings(client):
             st.error("❌ Not Configured")
             
     with col2:
-        st.info("Autopilot optimizes warehouse 'Auto-Suspend' settings hourly based on usage patterns to save credits.")
+        st.info("Autopilot and Automated Savings continuously evaluate warehouse sizes and 'Auto-Suspend' settings, correcting waste to yield immediate savings with zero effort.")
 
     st.divider()
 

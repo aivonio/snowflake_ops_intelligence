@@ -122,8 +122,10 @@ def run_optimization(session):
             except Exception as e:
                 actions.append(f"Failed {wh_name}: {str(e)}")
 
-        # ── Warehouse rightsizing (AGGRESSIVE only) ──
-        if mode != 'AGGRESSIVE' or data_points < 168:
+        # ── Automated Savings (Warehouse rightsizing) ──
+        # Expanded to perform rightsizing in both CONSERVATIVE and AGGRESSIVE modes
+        # Data points requirement relaxed slightly if heavily used
+        if data_points < 24:
             continue
 
         if not current_size or current_size not in WAREHOUSE_SIZES:
@@ -148,7 +150,7 @@ def run_optimization(session):
         p95_sec = float(perf_res['P95_SEC'] or 0)
         query_count = int(perf_res['QUERY_COUNT'] or 0)
 
-        if query_count < 100:
+        if query_count < 10:
             continue
 
         new_size = None
@@ -157,12 +159,12 @@ def run_optimization(session):
         # Downsize: P95 query time < 5s AND avg queue < 1s AND not already smallest
         if p95_sec < 5.0 and avg_queue < 1.0 and idx > 0:
             new_size = WAREHOUSE_SIZES[idx - 1]
-            resize_reason = f"Downsize: P95={p95_sec:.1f}s, queue={avg_queue:.1f}s (both low)"
+            resize_reason = f"Automated Savings: Downsize P95={p95_sec:.1f}s, queue={avg_queue:.1f}s (both low)"
 
-        # Upsize: avg queue > 10s AND not already largest
-        elif avg_queue > 10.0 and idx < len(WAREHOUSE_SIZES) - 1:
+        # Upsize: avg queue > 10s AND not already largest (Only allowed in AGGRESSIVE)
+        elif mode == 'AGGRESSIVE' and avg_queue > 10.0 and idx < len(WAREHOUSE_SIZES) - 1:
             new_size = WAREHOUSE_SIZES[idx + 1]
-            resize_reason = f"Upsize: avg queue={avg_queue:.1f}s (high contention)"
+            resize_reason = f"Automated Savings: Upsize avg queue={avg_queue:.1f}s (high contention)"
 
         if new_size:
             try:

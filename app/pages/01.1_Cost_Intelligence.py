@@ -1786,13 +1786,13 @@ def render_forecast(client, days):
 
 def render_dbt_models(client, days):
     """Render dbt Model Cost Analysis"""
-    st.markdown("### 🟧 dbt Model Costs")
-    st.caption("*Attribute costs to specific dbt models via Query Tags.*")
+    st.markdown("### 🟧 dbt Model & Integration Costs")
+    st.caption("*Deep cost visibility and attribution for dbt, Looker, and other integrated tools via Query Tags.*")
     
     dbt_costs = get_dbt_costs(client, days)
     
     if dbt_costs.empty:
-        st.info("ℹ️ No dbt tags detected. Configure dbt to write query tags (JSON) to see model-level costs.")
+        st.info("ℹ️ No dbt or tool tags detected. Configure dbt or Looker to write query tags (JSON) to see model-level costs.")
         st.markdown("""
         **How to Enable:**
         Add this to your `dbt_project.yml`:

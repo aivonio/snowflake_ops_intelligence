@@ -538,15 +538,16 @@ def run_dashboard():
         else:
             st.caption("User metrics restricted or unavailable.")
 
-    # 5. Cost Optimization CTA
+    # 5. Automated Savings & Cost Optimization CTA
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("#### 🎯 Cost Optimization Opportunities")
+    st.markdown("#### 🎯 Automated Savings & Optimization Opportunities")
     opt_c1, opt_c2 = st.columns([3, 1])
     with opt_c1:
-        st.info("ℹ️ **Waste Manager**: Identify 'Zombie Warehouses' (idle running) and 'Cold Data' (unused tables) to reduce monthly spend.")
+        st.info("ℹ️ **Automated Savings**: Continuously right-size warehouses based on load to reduce compute costs. **Waste Manager**: Identify 'Zombie Warehouses' and 'Cold Data'.")
     with opt_c2:
-         st.markdown("<div style='padding-top: 15px;'>", unsafe_allow_html=True)
+         st.markdown("<div style='padding-top: 5px;'>", unsafe_allow_html=True)
          st.page_link("pages/01.2_Waste_Manager.py", label="🚀 Launch Waste Manager", icon="🗑️", use_container_width=True)
+         st.page_link("pages/07.0_Settings.py", label="⚙️ Configure AutoPilot", icon="🤖", use_container_width=True)
          st.markdown("</div>", unsafe_allow_html=True)
 
     # 4. Status Bar (Fixed Footer)

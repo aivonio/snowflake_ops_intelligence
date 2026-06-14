@@ -651,7 +651,7 @@ def render_recommendations(client):
                 rec_engine = RecommendationEngine(client)
                 
                 # AUTOMATION TAB
-                tabs = st.tabs(["💡 Recommendations", "⚙️ Automation & Config"])
+                tabs = st.tabs(["💡 Recommendations", "⚙️ Automation & Config", "💰 Automated Savings"])
                 
                 with tabs[0]:
                     # Using Instant Recommendations
@@ -685,8 +685,13 @@ def render_recommendations(client):
                     else:
                         st.caption("No resource monitor attached.")
                         # Future: Add create monitor UI here
-                
-                # --- AI Analysis Button (Existing) ---
+
+                with tabs[2]:
+                    st.markdown("#### 💰 Automated Savings")
+                    st.info("Continuous automated right-sizing identifies idle and oversized warehouses and corrects them to yield immediate savings with zero effort.")
+                    st.markdown("<div style='padding-top: 5px;'>", unsafe_allow_html=True)
+                    st.page_link("pages/07.0_Settings.py", label="⚙️ Enable Automated Savings (AutoPilot)", icon="🤖", use_container_width=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
                 
                 # --- AI Analysis Button (Existing) ---
                 st.markdown("#### 🧠 Deep Analysis")
